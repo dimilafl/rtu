@@ -1,0 +1,2 @@
+# Optional dependencies for plotting and visualization
+matplotlib>=3.5.0

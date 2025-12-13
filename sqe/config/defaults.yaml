@@ -1,0 +1,95 @@
+# Signal Quality Engine Default Configuration
+
+# Engine settings
+engine:
+  scan_interval: 0.1  # seconds (100ms)
+  auto_register: true  # Automatically register unknown signals
+
+# Filter settings
+filters:
+  default_ewma_alpha: 0.3  # EWMA smoothing factor
+  default_ma_window: 10    # Moving average window size
+
+# Drift detection settings
+drift:
+  small_threshold: 0.5      # Sustained small drift threshold
+  large_threshold: 5.0      # Transient large drift threshold
+  sustained_window: 10      # Samples to consider "sustained"
+  monotonic_window: 5       # Samples to detect monotonic behavior
+
+# Variance and spike detection settings
+variance:
+  default_window: 20        # Variance calculation window
+  spike_k_sigma: 3.0        # Spike threshold (std deviations)
+  debounce_samples: 2       # Consecutive samples to confirm spike
+
+# Frequency detection settings
+frequency:
+  default_references:       # Default reference frequencies (Hz)
+    - 0.1
+    - 0.5
+    - 1.0
+  window_size: 50           # Correlation window size
+  threshold: 0.5            # Detection threshold
+  use_fft: true             # Enable FFT-based analysis
+
+# Signal Quality Index settings
+sqi:
+  weights:
+    noise: 0.25             # Weight for noise component
+    drift: 0.25             # Weight for drift component
+    spikes: 0.20            # Weight for spike component
+    oscillation: 0.15       # Weight for oscillation component
+    missing: 0.15           # Weight for missing samples component
+
+  thresholds:
+    noise: 0.1              # Noise threshold (CV)
+    drift: 1.0              # Drift threshold
+    spike_frequency: 0.05   # Spike frequency threshold
+    oscillation: 0.3        # Oscillation energy threshold
+
+  classification:
+    excellent: 90           # SQI >= 90
+    good: 75                # SQI >= 75
+    fair: 50                # SQI >= 50
+    poor: 25                # SQI >= 25
+    # Below 25 is critical
+
+# Integration adapter settings
+integration:
+  pointcore:
+    auto_register_points: true
+    default_point_type: "AI"
+
+  plcscan:
+    enable_callbacks: true
+    track_performance: true
+    warn_on_overrun: true
+    max_scan_history: 100
+
+  comms:
+    track_jitter: true
+    track_dropouts: true
+    track_late_arrivals: true
+    quality_monitor_window: 100
+
+# Logging settings
+logging:
+  level: "INFO"             # DEBUG, INFO, WARNING, ERROR
+  log_scan_timing: false
+  log_quality_changes: true
+  log_anomalies: true
+
+# Performance settings
+performance:
+  max_signals: 1000         # Maximum number of signals
+  buffer_preallocation: true
+  use_numpy: true           # Use numpy for calculations
+
+# Alert settings
+alerts:
+  enable: true
+  sqi_critical_threshold: 25
+  sqi_warning_threshold: 50
+  drift_alert_threshold: 5.0
+  spike_alert_threshold: 0.1  # 10% spike frequency
