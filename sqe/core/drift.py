@@ -47,7 +47,8 @@ class DriftDetector:
         small_drift_threshold: float = 0.5,
         large_drift_threshold: float = 5.0,
         sustained_window: int = 10,
-        monotonic_window: int = 5
+        monotonic_window: int = 5,
+        monotonic_threshold: Optional[float] = None
     ):
         """
         Initialize drift detector.
@@ -57,11 +58,15 @@ class DriftDetector:
             large_drift_threshold: Threshold for transient large drift
             sustained_window: Samples to consider drift "sustained"
             monotonic_window: Samples to detect monotonic behavior
+            monotonic_threshold: Minimum drift magnitude to count monotonic samples
         """
         self.small_threshold = small_drift_threshold
         self.large_threshold = large_drift_threshold
         self.sustained_window = sustained_window
         self.monotonic_window = monotonic_window
+        self.monotonic_threshold = (
+            small_drift_threshold if monotonic_threshold is None else monotonic_threshold
+        )
 
         self.last_value: Optional[float] = None
         self.drift_history = SignalBuffer(sustained_window)
@@ -96,8 +101,10 @@ class DriftDetector:
         # Store drift history
         self.drift_history.push(abs(dx))
 
+        abs_dx = abs(dx)
+
         # Update monotonic tracking
-        if dx != 0:
+        if abs_dx >= self.monotonic_threshold and dx != 0:
             current_sign = 1 if dx > 0 else -1
             if current_sign == self.last_drift_sign:
                 self.monotonic_count += 1
@@ -106,6 +113,7 @@ class DriftDetector:
                 self.last_drift_sign = current_sign
         else:
             self.monotonic_count = 0
+            self.last_drift_sign = 0
 
         # Classify drift type
         drift_type = self._classify_drift(dx)
@@ -137,7 +145,7 @@ class DriftDetector:
         abs_dx = abs(dx)
 
         # Check for monotonic drift first
-        if self.monotonic_count >= self.monotonic_window:
+        if abs_dx >= self.monotonic_threshold and self.monotonic_count >= self.monotonic_window:
             return DriftType.MONOTONIC
 
         # Large transient drift
@@ -166,7 +174,7 @@ class DriftDetector:
         severity = min(abs_dx / self.large_threshold, 1.0)
 
         # Increase severity if monotonic
-        if self.monotonic_count >= self.monotonic_window:
+        if abs_dx >= self.monotonic_threshold and self.monotonic_count >= self.monotonic_window:
             severity = min(severity * 1.5, 1.0)
 
         return severity
