@@ -139,8 +139,11 @@ class VarianceCalculator:
         """
         stats = self.get_stats()
 
-        if stats["sample_count"] < 2 or stats["std_dev"] <= 0:
+        if stats["sample_count"] < 2:
             return False
+
+        if stats["std_dev"] <= 0:
+            return abs(x - stats["mean"]) > 0
 
         return abs(x - stats["mean"]) > k * stats["std_dev"]
 
@@ -215,7 +218,7 @@ class SpikeDetector:
         self,
         window_size: int = 20,
         k_sigma: float = 3.0,
-        debounce_samples: int = 2
+        debounce_samples: int = 1
     ):
         """
         Initialize spike detector.

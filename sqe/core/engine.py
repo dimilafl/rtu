@@ -200,12 +200,17 @@ class SignalProcessor:
         self.missing_buffer = SignalBuffer(config.missing_window)
         self.last_quality_class: Optional[str] = None
 
-    def update(self, x: Optional[float]) -> Optional[ProcessedSignal]:
+    def update(
+        self,
+        x: Optional[float],
+        timestamp: Optional[float] = None,
+    ) -> Optional[ProcessedSignal]:
         """
         Process new sample through complete pipeline.
 
         Args:
             x: Raw signal value (None if missing)
+            timestamp: Optional sample timestamp override
 
         Returns:
             ProcessedSignal with all analysis results, or None if sample is missing
@@ -218,7 +223,8 @@ class SignalProcessor:
             self.missing_count += 1
             return None
 
-        timestamp = time.time()
+        if timestamp is None:
+            timestamp = time.time()
 
         # Apply filters
         filtered_ewma = self.ewma_filter.update(x)
@@ -381,12 +387,17 @@ class SignalQualityEngine:
         if signal_id in self.processors:
             del self.processors[signal_id]
 
-    def update(self, signals: Dict[str, Optional[float]]) -> Dict[str, ProcessedSignal]:
+    def update(
+        self,
+        signals: Dict[str, Optional[float]],
+        timestamp: Optional[float] = None,
+    ) -> Dict[str, ProcessedSignal]:
         """
         Process one scan cycle for all signals.
 
         Args:
             signals: Dictionary mapping signal_id to raw value (None if missing)
+            timestamp: Optional scan timestamp override
 
         Returns:
             Dictionary mapping signal_id to ProcessedSignal
@@ -418,7 +429,7 @@ class SignalQualityEngine:
             value = signals.get(signal_id)
             processor = self.processors[signal_id]
             prev_quality = processor.last_quality_class
-            processed = processor.update(value)
+            processed = processor.update(value, timestamp=timestamp)
             if processed is not None:
                 if (
                     self.log_quality_changes
@@ -447,18 +458,24 @@ class SignalQualityEngine:
 
         return results
 
-    def update_single(self, signal_id: str, value: Optional[float]) -> Optional[ProcessedSignal]:
+    def update_single(
+        self,
+        signal_id: str,
+        value: Optional[float],
+        timestamp: Optional[float] = None,
+    ) -> Optional[ProcessedSignal]:
         """
         Process single signal update.
 
         Args:
             signal_id: Signal identifier
             value: Raw signal value
+            timestamp: Optional sample timestamp override
 
         Returns:
             ProcessedSignal or None if missing
         """
-        results = self.update({signal_id: value})
+        results = self.update({signal_id: value}, timestamp=timestamp)
         return results.get(signal_id)
 
     def get_signal_stats(self, signal_id: str) -> Dict:

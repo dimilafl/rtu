@@ -12,6 +12,7 @@ The Signal Quality Engine (SQE) is a real-time digital signal processing system 
 - **Frequency Analysis:** Correlation-based and FFT-based oscillation detection
 - **Quality Metrics:** Composite Signal Quality Index (SQI) scoring 0-100
 - **Real-Time Processing:** Deterministic execution within PLC scan cycles
+- **Quality Incidents:** Stable incident lifecycle events driven by SQI scans
 
 ## Key Features
 
@@ -33,6 +34,11 @@ The Signal Quality Engine (SQE) is a real-time digital signal processing system 
 - Component breakdown (noise, drift, spikes, oscillation, missing)
 - Trend analysis (improving/degrading/stable)
 - Quality classification (excellent/good/fair/poor/critical)
+
+✅ **Quality Incidents**
+- Incident lifecycle events: started, updated, resolved
+- Persistence and hysteresis to avoid flapping
+- Deterministic incident ids and timestamps
 
 ✅ **Integration Adapters**
 - PointCore-Simulator adapter
@@ -98,6 +104,9 @@ sqe analyze --signal-file data.csv --plot
 # Simulate signal processing
 sqe simulate --duration 1000 --noise 1.5 --plot
 
+# Generate incident events
+sqe incidents --signal-file data.csv --out incidents.jsonl
+
 # Show version
 sqe version
 ```
@@ -116,11 +125,15 @@ sqe/
 │   ├── variance.py            # Variance & spike detection
 │   ├── freq_detect.py         # Frequency analysis
 │   ├── sqi.py                 # Signal Quality Index
+│   ├── incidents.py           # Quality incident engine
 │   └── engine.py              # Main engine
 ├── integration/
 │   ├── pointcore_adapter.py   # PointCore integration
 │   ├── plcscan_adapter.py     # PLC scan integration
-│   └── comms_adapter.py       # Comms front-end integration
+│   ├── comms_adapter.py       # Comms front-end integration
+│   └── publisher.py           # JSONL publisher and OASyS stub
+├── ops/
+│   └── service.py             # Realtime scan service wrapper
 ├── tests/
 │   ├── test_filters.py
 │   ├── test_drift.py
@@ -137,6 +150,7 @@ sqe/
     ├── architecture.md        # System architecture
     ├── dsp_principles.md      # DSP mathematics
     ├── integration_guide.md   # Integration instructions
+    ├── incidents.md           # Incident lifecycle and schema
     └── sqi_definition.md      # SQI formula & interpretation
 ```
 
@@ -147,6 +161,7 @@ sqe/
 - **[Architecture](sqe/docs/architecture.md)** - System design and component overview
 - **[DSP Principles](sqe/docs/dsp_principles.md)** - Mathematical foundations
 - **[Integration Guide](sqe/docs/integration_guide.md)** - How to integrate with existing systems
+- **[Quality Incidents](sqe/docs/incidents.md)** - Incident lifecycle and policy
 - **[SQI Definition](sqe/docs/sqi_definition.md)** - Signal Quality Index explained
 
 ### Examples

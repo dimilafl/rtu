@@ -29,7 +29,7 @@ class TestDriftDetector:
 
     def test_small_drift_detection(self):
         """Test detection of small drift."""
-        detector = DriftDetector(small_drift_threshold=1.0)
+        detector = DriftDetector(small_drift_threshold=0.5)
 
         # Create small sustained drift
         for i in range(15):

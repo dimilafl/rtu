@@ -9,11 +9,12 @@ from __future__ import annotations
 from copy import deepcopy
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 
 from sqe.core.engine import SignalConfig
+from sqe.core.incidents import IncidentCause, IncidentPolicy
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "defaults.yaml"
 
@@ -164,4 +165,88 @@ def build_signal_config(
         sqi_warning_threshold=alerts.get("sqi_warning_threshold", 50.0),
         drift_alert_threshold=alerts.get("drift_alert_threshold", 5.0),
         spike_alert_threshold=alerts.get("spike_alert_threshold", 0.1),
+    )
+
+
+def get_incident_policy(config: Dict[str, Any]) -> IncidentPolicy:
+    """Build IncidentPolicy from merged config values."""
+    incidents = config.get("incidents", {})
+
+    def require_range(name: str, value: Any, min_value: float, max_value: float) -> float:
+        number = float(value)
+        if number < min_value or number > max_value:
+            raise ValueError(f"{name} must be between {min_value} and {max_value}")
+        return number
+
+    def require_positive_int(name: str, value: Any) -> int:
+        number = int(value)
+        if number <= 0:
+            raise ValueError(f"{name} must be > 0")
+        return number
+
+    start_sqi_threshold = require_range(
+        "incidents.start_sqi_threshold",
+        incidents.get("start_sqi_threshold", 50),
+        0,
+        100,
+    )
+    end_sqi_threshold = require_range(
+        "incidents.end_sqi_threshold",
+        incidents.get("end_sqi_threshold", 60),
+        0,
+        100,
+    )
+    critical_sqi_threshold = require_range(
+        "incidents.critical_sqi_threshold",
+        incidents.get("critical_sqi_threshold", 25),
+        0,
+        100,
+    )
+    component_score_floor = require_range(
+        "incidents.component_score_floor",
+        incidents.get("component_score_floor", 70),
+        0,
+        100,
+    )
+    start_persistence_scans = require_positive_int(
+        "incidents.start_persistence_scans",
+        incidents.get("start_persistence_scans", 5),
+    )
+    end_persistence_scans = require_positive_int(
+        "incidents.end_persistence_scans",
+        incidents.get("end_persistence_scans", 10),
+    )
+
+    priority_config = incidents.get("cause_priority")
+    if priority_config:
+        priority: List[IncidentCause] = []
+        for name in priority_config:
+            try:
+                priority.append(IncidentCause(str(name).lower()))
+            except ValueError as exc:
+                raise ValueError(f"Unknown incident cause: {name}") from exc
+    else:
+        priority = [
+            IncidentCause.MISSING,
+            IncidentCause.DRIFT,
+            IncidentCause.SPIKES,
+            IncidentCause.NOISE,
+            IncidentCause.OSCILLATION,
+            IncidentCause.UNKNOWN,
+        ]
+
+    return IncidentPolicy(
+        start_sqi_threshold=start_sqi_threshold,
+        end_sqi_threshold=end_sqi_threshold,
+        start_persistence_scans=start_persistence_scans,
+        end_persistence_scans=end_persistence_scans,
+        critical_sqi_threshold=critical_sqi_threshold,
+        component_score_floor=component_score_floor,
+        cause_priority=priority,
+        emit_update_on_cause_change=bool(
+            incidents.get("emit_update_on_cause_change", True)
+        ),
+        emit_update_on_severity_change=bool(
+            incidents.get("emit_update_on_severity_change", True)
+        ),
     )
