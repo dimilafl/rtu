@@ -5,20 +5,28 @@ Demonstrates the full Signal Quality Engine pipeline
 with simulated RTU signals.
 """
 
-import numpy as np
+import math
+import random
+import sys
 import time
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from sqe.core.engine import SignalQualityEngine, SignalConfig
 
 
 def generate_clean_signal(t: float, freq: float = 0.5, amplitude: float = 10.0) -> float:
     """Generate clean sinusoidal signal."""
-    return amplitude * np.sin(2 * np.pi * freq * t)
+    return amplitude * math.sin(2 * math.pi * freq * t)
 
 
 def generate_noisy_signal(t: float, noise_level: float = 0.5) -> float:
     """Generate signal with additive noise."""
     clean = generate_clean_signal(t)
-    noise = np.random.normal(0, noise_level)
+    noise = random.gauss(0, noise_level)
     return clean + noise
 
 
