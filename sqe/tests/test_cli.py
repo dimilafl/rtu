@@ -24,6 +24,34 @@ def test_load_signal_from_csv_parses_missing_values(tmp_path):
     assert rows[1].value is None
 
 
+def test_load_signal_from_csv_requires_expected_columns(tmp_path):
+    """Ensure missing required CSV headers are rejected."""
+    csv_content = "\n".join([
+        "time,signal_id,value",
+        "0.0,AI_001,42.5",
+        ""
+    ])
+    csv_path = tmp_path / "invalid_headers.csv"
+    csv_path.write_text(csv_content)
+
+    with pytest.raises(ValueError, match="Missing required CSV columns"):
+        load_signal_from_csv(str(csv_path))
+
+
+def test_load_signal_from_csv_rejects_blank_signal_id(tmp_path):
+    """Ensure missing signal identifiers raise a helpful error."""
+    csv_content = "\n".join([
+        "timestamp,signal_id,value",
+        "0.0,,42.5",
+        ""
+    ])
+    csv_path = tmp_path / "missing_signal_id.csv"
+    csv_path.write_text(csv_content)
+
+    with pytest.raises(ValueError, match="Missing signal_id value"):
+        load_signal_from_csv(str(csv_path))
+
+
 def test_build_scans_with_staggered_timestamps_and_missing_entries(tmp_path):
     """Ensure scans are grouped by timestamp and missing signals are filled with None."""
     csv_content = "\n".join([
