@@ -9,6 +9,7 @@ from sqe.core.engine import (
     SignalConfig,
     ProcessedSignal
 )
+from sqe.config.loader import load_config
 
 
 class TestSignalConfig:
@@ -218,6 +219,51 @@ class TestSignalQualityEngine:
         assert len(all_stats) == 2
         assert "sig1" in all_stats
         assert "sig2" in all_stats
+
+    def test_defaults_loaded_when_no_config(self):
+        """Test that defaults from YAML are applied when no config provided."""
+        engine = SignalQualityEngine()
+        engine.register_signal("sig_default")
+
+        processor = engine.processors["sig_default"]
+
+        assert engine.scan_interval == 0.1
+        assert processor.config.ewma_alpha == 0.3
+        assert processor.config.ma_window == 10
+        assert processor.config.small_drift_threshold == 0.5
+        assert processor.config.large_drift_threshold == 5.0
+        assert processor.config.variance_window == 20
+        assert processor.config.spike_k_sigma == 3.0
+        assert processor.config.freq_window == 50
+        assert processor.config.freq_threshold == 0.5
+        assert processor.config.freq_use_fft is True
+
+    def test_config_overrides_apply(self, tmp_path):
+        """Test that configuration overrides take effect."""
+        config_path = tmp_path / "sqe_config.yaml"
+        config_path.write_text(
+            \"\"\"\nengine:\n  scan_interval: 0.2\nfilters:\n  default_ewma_alpha: 0.9\n  default_ma_window: 5\ndrift:\n  small_threshold: 1.2\n  large_threshold: 6.5\n  sustained_window: 7\n  monotonic_window: 3\nvariance:\n  default_window: 12\n  spike_k_sigma: 2.1\n  debounce_samples: 4\nfrequency:\n  default_references: [0.2, 0.4]\n  window_size: 30\n  threshold: 0.8\n  use_fft: false\nsqi:\n  weights:\n    noise: 0.1\n    drift: 0.2\n    spikes: 0.3\n    oscillation: 0.2\n    missing: 0.2\n  thresholds:\n    noise: 0.2\n    drift: 2.0\n    spike_frequency: 0.1\n    oscillation: 0.4\n\"\"\",\n            encoding=\"utf-8\"\n        )
+
+        config = load_config(config_path)
+        engine = SignalQualityEngine(config=config)
+        engine.register_signal(\"sig_override\")
+
+        processor = engine.processors[\"sig_override\"]
+
+        assert engine.scan_interval == 0.2
+        assert processor.config.ewma_alpha == 0.9
+        assert processor.config.ma_window == 5
+        assert processor.config.small_drift_threshold == 1.2
+        assert processor.config.large_drift_threshold == 6.5
+        assert processor.config.sustained_drift_window == 7
+        assert processor.config.monotonic_drift_window == 3
+        assert processor.config.variance_window == 12
+        assert processor.config.spike_k_sigma == 2.1
+        assert processor.config.spike_debounce_samples == 4
+        assert processor.config.reference_frequencies == [0.2, 0.4]
+        assert processor.config.freq_window == 30
+        assert processor.config.freq_threshold == 0.8
+        assert processor.config.freq_use_fft is False
 
     def test_reset_signal(self):
         """Test resetting single signal."""

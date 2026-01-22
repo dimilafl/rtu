@@ -239,6 +239,23 @@ sqi:
     missing: 0.15
 ```
 
+Load defaults and merge overrides:
+
+```python
+from sqe.config.loader import load_config
+from sqe.core.engine import SignalQualityEngine
+
+config = load_config("sqe_config.yaml")
+engine = SignalQualityEngine(config=config)
+```
+
+CLI usage with overrides:
+
+```bash
+sqe analyze --signal-file data.csv --config sqe_config.yaml
+sqe simulate --duration 100 --noise 1.0 --config sqe_config.yaml
+```
+
 ### Programmatic Configuration
 
 ```python

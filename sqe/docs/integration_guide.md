@@ -502,17 +502,14 @@ defaults:
 ### Load Configuration
 
 ```python
-import yaml
+from sqe.config.loader import load_config
 from sqe.core.engine import SignalQualityEngine, SignalConfig
 
-# Load configuration
-with open('sqe_config.yaml', 'r') as f:
-    config = yaml.safe_load(f)
+# Load configuration (defaults + overrides)
+config = load_config("sqe_config.yaml")
 
 # Initialize engine
-engine = SignalQualityEngine(
-    scan_interval=config['engine']['scan_interval']
-)
+engine = SignalQualityEngine(config=config)
 
 # Register signals with configs
 for sig_id, sig_config in config['signals'].items():

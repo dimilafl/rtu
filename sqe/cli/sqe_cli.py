@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from sqe.core.engine import SignalQualityEngine, SignalConfig
+from sqe.config.loader import load_config
 from sqe import __version__
 
 
@@ -68,7 +69,8 @@ def analyze_command(args):
     print()
 
     # Initialize engine
-    engine = SignalQualityEngine()
+    config = load_config(args.config)
+    engine = SignalQualityEngine(config=config)
 
     # Process signals
     print("Processing signals...")
@@ -118,12 +120,13 @@ def simulate_command(args):
     print()
 
     # Initialize engine
-    engine = SignalQualityEngine(scan_interval=0.1)
+    config = load_config(args.config)
+    engine = SignalQualityEngine(config=config)
     engine.register_signal("SIM_SIGNAL")
 
     # Generate signal
     print("Generating signal...")
-    t = np.linspace(0, args.duration * 0.1, args.duration)
+    t = np.linspace(0, args.duration * engine.scan_interval, args.duration)
     clean_signal = 10.0 * np.sin(2 * np.pi * 0.5 * t)
     noise = np.random.normal(0, args.noise, args.duration)
     signal = clean_signal + noise
@@ -251,6 +254,10 @@ def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
         description='Signal Quality Engine (SQE) - DSP analysis for SCADA signals'
+    )
+    parser.add_argument(
+        '--config',
+        help='Path to YAML configuration override file'
     )
 
     subparsers = parser.add_subparsers(dest='command', help='Available commands')

@@ -5,7 +5,7 @@ Integrates all DSP components into a unified signal processing pipeline.
 Designed for deterministic, real-time operation within PLC scan cycles.
 """
 
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any, Union
 from dataclasses import dataclass, asdict
 import time
 
@@ -13,7 +13,8 @@ from sqe.core.filters import EWMAFilter, HighPassFilter, MovingAverageFilter
 from sqe.core.drift import DriftDetector, DriftEvent
 from sqe.core.variance import VarianceCalculator, SpikeDetector
 from sqe.core.freq_detect import OscillationDetector
-from sqe.core.sqi import SignalQualityIndex
+from sqe.core.sqi import SignalQualityIndex, SQIWeights
+from sqe.config.loader import normalize_config, SQEConfig
 
 
 @dataclass
@@ -28,21 +29,71 @@ class SignalConfig:
     # Drift parameters
     small_drift_threshold: float = 0.5
     large_drift_threshold: float = 5.0
+    sustained_drift_window: int = 10
+    monotonic_drift_window: int = 5
 
     # Variance parameters
     variance_window: int = 20
     spike_k_sigma: float = 3.0
+    spike_debounce_samples: int = 2
 
     # Frequency parameters
     reference_frequencies: List[float] = None
     sample_interval: float = 0.1
     freq_window: int = 50
+    freq_threshold: float = 0.5
+    freq_use_fft: bool = True
+
+    # SQI parameters
+    sqi_weights: Optional[Dict[str, float]] = None
+    sqi_thresholds: Optional[Dict[str, float]] = None
 
     def __post_init__(self):
         """Set default reference frequencies if not provided."""
         if self.reference_frequencies is None:
             # Default frequencies: 0.1 Hz, 0.5 Hz, 1 Hz
             self.reference_frequencies = [0.1, 0.5, 1.0]
+
+    @classmethod
+    def from_config(
+        cls,
+        signal_id: str,
+        config: Optional[Union[Dict[str, Any], SQEConfig]] = None,
+        *,
+        overrides: Optional[Dict[str, Any]] = None,
+        sample_interval: Optional[float] = None
+    ) -> "SignalConfig":
+        """Build a SignalConfig from a global config and optional overrides."""
+        config_data = normalize_config(config)
+        filters = config_data.get("filters", {})
+        drift = config_data.get("drift", {})
+        variance = config_data.get("variance", {})
+        frequency = config_data.get("frequency", {})
+        sqi = config_data.get("sqi", {})
+
+        base = {
+            "ewma_alpha": filters.get("default_ewma_alpha", 0.3),
+            "ma_window": filters.get("default_ma_window", 10),
+            "small_drift_threshold": drift.get("small_threshold", 0.5),
+            "large_drift_threshold": drift.get("large_threshold", 5.0),
+            "sustained_drift_window": drift.get("sustained_window", 10),
+            "monotonic_drift_window": drift.get("monotonic_window", 5),
+            "variance_window": variance.get("default_window", 20),
+            "spike_k_sigma": variance.get("spike_k_sigma", 3.0),
+            "spike_debounce_samples": variance.get("debounce_samples", 2),
+            "reference_frequencies": frequency.get("default_references", [0.1, 0.5, 1.0]),
+            "sample_interval": sample_interval or config_data.get("engine", {}).get("scan_interval", 0.1),
+            "freq_window": frequency.get("window_size", 50),
+            "freq_threshold": frequency.get("threshold", 0.5),
+            "freq_use_fft": frequency.get("use_fft", True),
+            "sqi_weights": sqi.get("weights"),
+            "sqi_thresholds": sqi.get("thresholds"),
+        }
+
+        if overrides:
+            base.update(overrides)
+
+        return cls(signal_id=signal_id, **base)
 
 
 @dataclass
@@ -110,25 +161,40 @@ class SignalProcessor:
         # Initialize drift detector
         self.drift_detector = DriftDetector(
             small_drift_threshold=config.small_drift_threshold,
-            large_drift_threshold=config.large_drift_threshold
+            large_drift_threshold=config.large_drift_threshold,
+            sustained_window=config.sustained_drift_window,
+            monotonic_window=config.monotonic_drift_window
         )
 
         # Initialize variance and spike detection
         self.variance_calc = VarianceCalculator(config.variance_window)
         self.spike_detector = SpikeDetector(
             window_size=config.variance_window,
-            k_sigma=config.spike_k_sigma
+            k_sigma=config.spike_k_sigma,
+            debounce_samples=config.spike_debounce_samples
         )
 
         # Initialize frequency detection
         self.osc_detector = OscillationDetector(
             reference_frequencies=config.reference_frequencies,
             sample_interval=config.sample_interval,
-            window_size=config.freq_window
+            window_size=config.freq_window,
+            threshold=config.freq_threshold,
+            use_fft=config.freq_use_fft
         )
 
         # Initialize SQI calculator
-        self.sqi_calc = SignalQualityIndex()
+        sqi_weights = None
+        if config.sqi_weights:
+            sqi_weights = SQIWeights(**config.sqi_weights)
+        sqi_thresholds = config.sqi_thresholds or {}
+        self.sqi_calc = SignalQualityIndex(
+            weights=sqi_weights,
+            noise_threshold=sqi_thresholds.get("noise", 0.1),
+            drift_threshold=sqi_thresholds.get("drift", 1.0),
+            spike_threshold=sqi_thresholds.get("spike_frequency", 0.05),
+            oscillation_threshold=sqi_thresholds.get("oscillation", 0.3)
+        )
 
         # Track missing samples
         self.missing_count = 0
@@ -223,13 +289,23 @@ class SignalQualityEngine:
     for signal registration and processing.
     """
 
-    def __init__(self, scan_interval: float = 0.1):
+    def __init__(
+        self,
+        scan_interval: Optional[float] = None,
+        config: Optional[Union[Dict[str, Any], SQEConfig]] = None
+    ):
         """
         Initialize Signal Quality Engine.
 
         Args:
             scan_interval: Expected time between scans (seconds)
+            config: Configuration dictionary or SQEConfig
         """
+        self.config = normalize_config(config)
+        if scan_interval is None:
+            scan_interval = self.config.get("engine", {}).get("scan_interval", 0.1)
+        else:
+            self.config.setdefault("engine", {})["scan_interval"] = scan_interval
         self.scan_interval = scan_interval
         self.processors: Dict[str, SignalProcessor] = {}
         self.scan_count = 0
@@ -238,7 +314,7 @@ class SignalQualityEngine:
     def register_signal(
         self,
         signal_id: str,
-        config: Optional[SignalConfig] = None
+        config: Optional[Union[SignalConfig, Dict[str, Any], SQEConfig]] = None
     ) -> None:
         """
         Register a new signal for processing.
@@ -250,13 +326,34 @@ class SignalQualityEngine:
         if signal_id in self.processors:
             raise ValueError(f"Signal {signal_id} already registered")
 
-        if config is None:
-            config = SignalConfig(
+        if isinstance(config, SignalConfig):
+            resolved_config = config
+        else:
+            overrides = None
+            base_config = self.config
+            if config is not None:
+                if isinstance(config, SQEConfig):
+                    base_config = config
+                elif isinstance(config, dict):
+                    is_global = any(
+                        key in config
+                        for key in ("engine", "filters", "drift", "variance", "frequency", "sqi")
+                    )
+                    if is_global:
+                        base_config = config
+                    else:
+                        overrides = config
+                else:
+                    raise TypeError("Config must be a SignalConfig, dict, or SQEConfig")
+
+            resolved_config = SignalConfig.from_config(
                 signal_id=signal_id,
+                config=base_config,
+                overrides=overrides,
                 sample_interval=self.scan_interval
             )
 
-        self.processors[signal_id] = SignalProcessor(config)
+        self.processors[signal_id] = SignalProcessor(resolved_config)
 
     def unregister_signal(self, signal_id: str) -> None:
         """
