@@ -58,6 +58,37 @@ class SignalConfig:
 
     def __post_init__(self):
         """Set default reference frequencies if not provided."""
+        positive_int_params = {
+            "ma_window": self.ma_window,
+            "variance_window": self.variance_window,
+            "freq_window": self.freq_window,
+            "missing_window": self.missing_window,
+        }
+        for name, value in positive_int_params.items():
+            if value <= 0:
+                raise ValueError(f"{name} must be > 0 (got {value}).")
+
+        if self.sample_interval <= 0:
+            raise ValueError(
+                f"sample_interval must be > 0 (got {self.sample_interval})."
+            )
+
+        non_negative_params = {
+            "small_drift_threshold": self.small_drift_threshold,
+            "large_drift_threshold": self.large_drift_threshold,
+            "sqi_noise_threshold": self.sqi_noise_threshold,
+            "sqi_drift_threshold": self.sqi_drift_threshold,
+            "sqi_spike_threshold": self.sqi_spike_threshold,
+            "sqi_oscillation_threshold": self.sqi_oscillation_threshold,
+            "sqi_critical_threshold": self.sqi_critical_threshold,
+            "sqi_warning_threshold": self.sqi_warning_threshold,
+            "drift_alert_threshold": self.drift_alert_threshold,
+            "spike_alert_threshold": self.spike_alert_threshold,
+        }
+        for name, value in non_negative_params.items():
+            if value < 0:
+                raise ValueError(f"{name} must be >= 0 (got {value}).")
+
         if self.reference_frequencies is None:
             # Default frequencies: 0.1 Hz, 0.5 Hz, 1 Hz
             self.reference_frequencies = [0.1, 0.5, 1.0]
