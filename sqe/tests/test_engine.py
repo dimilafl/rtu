@@ -132,6 +132,8 @@ class TestSignalQualityEngine:
         """Test engine initialization."""
         engine = SignalQualityEngine(scan_interval=0.1)
         assert engine.scan_interval == 0.1
+        assert engine.auto_register is True
+        assert engine.max_signals is None
         assert len(engine.processors) == 0
 
     def test_register_signal(self):
@@ -193,6 +195,24 @@ class TestSignalQualityEngine:
         # Should auto-register
         assert "new_sig" in engine.processors
         assert result.signal_id == "new_sig"
+
+    def test_auto_registration_disabled(self):
+        """Test that auto-registration can be disabled."""
+        engine = SignalQualityEngine(auto_register=False)
+
+        with pytest.raises(ValueError):
+            engine.update_single("new_sig", 10.0)
+
+    def test_max_signal_limit(self):
+        """Test that max signal limit is enforced."""
+        engine = SignalQualityEngine(max_signals=1)
+        engine.register_signal("sig1")
+
+        with pytest.raises(ValueError):
+            engine.register_signal("sig2")
+
+        with pytest.raises(ValueError):
+            engine.update_single("sig2", 10.0)
 
     def test_get_signal_stats(self):
         """Test getting signal statistics."""
