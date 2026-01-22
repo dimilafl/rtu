@@ -15,6 +15,7 @@ from sqe.core.drift import DriftDetector, DriftEvent
 from sqe.core.variance import VarianceCalculator, SpikeDetector
 from sqe.core.freq_detect import OscillationDetector
 from sqe.core.sqi import SignalQualityIndex, SQIWeights
+from sqe.core.signal_buffer import SignalBuffer
 
 
 @dataclass
@@ -38,6 +39,9 @@ class SignalConfig:
     reference_frequencies: List[float] = None
     sample_interval: float = 0.1
     freq_window: int = 50
+
+    # Missing sample tracking
+    missing_window: int = 100
 
     # SQI parameters
     sqi_weights: Optional[Dict[str, float]] = None
@@ -162,6 +166,7 @@ class SignalProcessor:
 
         # Track missing samples
         self.missing_count = 0
+        self.missing_buffer = SignalBuffer(config.missing_window)
         self.last_quality_class: Optional[str] = None
 
     def update(self, x: Optional[float]) -> Optional[ProcessedSignal]:
@@ -175,6 +180,7 @@ class SignalProcessor:
             ProcessedSignal with all analysis results, or None if sample is missing
         """
         self.sample_count += 1
+        self.missing_buffer.push(x)
 
         # Handle missing sample
         if x is None:
@@ -199,7 +205,7 @@ class SignalProcessor:
         freq_result = self.osc_detector.update(x)
 
         # Calculate SQI
-        missing_ratio = self.missing_count / self.sample_count
+        missing_ratio = self.missing_buffer.get_missing_ratio()
         sqi_result = self.sqi_calc.calculate(
             noise_level=variance_result["noise_level"],
             drift_rate=abs(drift_event.drift_rate),
@@ -251,6 +257,7 @@ class SignalProcessor:
         """Reset all processor state."""
         self.sample_count = 0
         self.missing_count = 0
+        self.missing_buffer.clear()
         self.last_quality_class = None
         self.ewma_filter.reset()
         self.ma_filter.reset()
@@ -442,7 +449,7 @@ class SignalQualityEngine:
             "signal_id": signal_id,
             "sample_count": processor.sample_count,
             "missing_count": processor.missing_count,
-            "missing_ratio": processor.missing_count / processor.sample_count if processor.sample_count > 0 else 0,
+            "missing_ratio": processor.missing_buffer.get_missing_ratio(),
             "sqi_stats": processor.sqi_calc.get_statistics()
         }
 
