@@ -28,6 +28,8 @@ class SQIWeights:
     def normalize(self) -> 'SQIWeights':
         """Normalize weights to sum to 1.0."""
         total = self.noise + self.drift + self.spikes + self.oscillation + self.missing
+        if total == 0:
+            raise ValueError("SQI weights must sum to a positive value.")
         return SQIWeights(
             noise=self.noise / total,
             drift=self.drift / total,
