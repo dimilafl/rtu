@@ -13,7 +13,7 @@ from sqe.core.filters import EWMAFilter, HighPassFilter, MovingAverageFilter
 from sqe.core.drift import DriftDetector, DriftEvent
 from sqe.core.variance import VarianceCalculator, SpikeDetector
 from sqe.core.freq_detect import OscillationDetector
-from sqe.core.sqi import SignalQualityIndex
+from sqe.core.sqi import SignalQualityIndex, SQIWeights
 
 
 @dataclass
@@ -37,6 +37,13 @@ class SignalConfig:
     reference_frequencies: List[float] = None
     sample_interval: float = 0.1
     freq_window: int = 50
+
+    # SQI parameters
+    sqi_weights: Optional[SQIWeights] = None
+    sqi_noise_threshold: float = 0.1
+    sqi_drift_threshold: float = 1.0
+    sqi_spike_threshold: float = 0.05
+    sqi_oscillation_threshold: float = 0.3
 
     def __post_init__(self):
         """Set default reference frequencies if not provided."""
@@ -130,7 +137,13 @@ class SignalProcessor:
         )
 
         # Initialize SQI calculator
-        self.sqi_calc = SignalQualityIndex()
+        self.sqi_calc = SignalQualityIndex(
+            weights=config.sqi_weights,
+            noise_threshold=config.sqi_noise_threshold,
+            drift_threshold=config.sqi_drift_threshold,
+            spike_threshold=config.sqi_spike_threshold,
+            oscillation_threshold=config.sqi_oscillation_threshold
+        )
 
         # Track missing samples
         self.missing_count = 0
@@ -227,17 +240,33 @@ class SignalQualityEngine:
     for signal registration and processing.
     """
 
-    def __init__(self, scan_interval: float = 0.1):
+    def __init__(
+        self,
+        scan_interval: float = 0.1,
+        auto_register: bool = True,
+        signal_defaults: Optional[Dict] = None
+    ):
         """
         Initialize Signal Quality Engine.
 
         Args:
             scan_interval: Expected time between scans (seconds)
+            auto_register: Automatically register unknown signals
+            signal_defaults: Default SignalConfig fields for new signals
         """
         self.scan_interval = scan_interval
+        self.auto_register = auto_register
+        self.signal_defaults = signal_defaults or {}
         self.processors: Dict[str, SignalProcessor] = {}
         self.scan_count = 0
         self.last_scan_time: Optional[float] = None
+
+    def _build_default_config(self, signal_id: str) -> SignalConfig:
+        defaults = {"signal_id": signal_id, "sample_interval": self.scan_interval}
+        for key, value in self.signal_defaults.items():
+            if key != "signal_id":
+                defaults[key] = value
+        return SignalConfig(**defaults)
 
     def register_signal(
         self,
@@ -255,10 +284,7 @@ class SignalQualityEngine:
             raise ValueError(f"Signal {signal_id} already registered")
 
         if config is None:
-            config = SignalConfig(
-                signal_id=signal_id,
-                sample_interval=self.scan_interval
-            )
+            config = self._build_default_config(signal_id)
 
         self.processors[signal_id] = SignalProcessor(config)
 
@@ -296,8 +322,10 @@ class SignalQualityEngine:
 
         for signal_id, value in signals.items():
             if signal_id not in self.processors:
-                # Auto-register unknown signals
-                self.register_signal(signal_id)
+                if self.auto_register:
+                    self.register_signal(signal_id)
+                else:
+                    raise ValueError(f"Signal {signal_id} not registered")
 
             processed = self.processors[signal_id].update(value)
             if processed is not None:
@@ -317,7 +345,10 @@ class SignalQualityEngine:
             ProcessedSignal or None if missing
         """
         if signal_id not in self.processors:
-            self.register_signal(signal_id)
+            if self.auto_register:
+                self.register_signal(signal_id)
+            else:
+                raise ValueError(f"Signal {signal_id} not registered")
 
         return self.processors[signal_id].update(value)
 

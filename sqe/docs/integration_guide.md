@@ -529,6 +529,26 @@ for sig_id, sig_config in config['signals'].items():
     engine.register_signal(sig_id, config_obj)
 ```
 
+For standard defaults plus overrides, you can use the built-in loader to merge
+`sqe/config/defaults.yaml` with a custom config file:
+
+```python
+from sqe.config.loader import build_engine_settings, load_config
+from sqe.core.engine import SignalQualityEngine
+
+config = load_config("sqe_config.yaml")
+engine_settings = build_engine_settings(config, ["AI_001", "AI_CRITICAL"])
+
+engine = SignalQualityEngine(
+    scan_interval=engine_settings["scan_interval"],
+    auto_register=engine_settings["auto_register"],
+    signal_defaults=engine_settings["signal_defaults"]
+)
+
+for signal_id, signal_config in engine_settings["signal_configs"].items():
+    engine.register_signal(signal_id, signal_config)
+```
+
 ## Troubleshooting
 
 ### High Scan Duration

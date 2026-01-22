@@ -95,8 +95,14 @@ for sig_id, result in results.items():
 # Analyze signal from CSV file
 sqe analyze --signal-file data.csv --plot
 
+# Analyze with custom configuration
+sqe analyze --signal-file data.csv --config sqe_config.yaml --plot
+
 # Simulate signal processing
 sqe simulate --duration 1000 --noise 1.5 --plot
+
+# Simulate with custom configuration
+sqe simulate --duration 1000 --noise 1.5 --config sqe_config.yaml --plot
 
 # Show version
 sqe version

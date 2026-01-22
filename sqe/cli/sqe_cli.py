@@ -16,6 +16,7 @@ from pathlib import Path
 from statistics import median
 from typing import Dict, Iterable, List, Optional, Tuple
 
+from sqe.config.loader import build_engine_settings, load_config
 from sqe.core.engine import SignalQualityEngine
 from sqe import __version__
 
@@ -119,7 +120,12 @@ def analyze_command(args):
         return 1
 
     signal_ids, scans = build_scans(rows)
-    scan_interval = derive_scan_interval((timestamp for timestamp, _ in scans))
+    config = load_config(args.config)
+    engine_settings = build_engine_settings(config, signal_ids)
+    scan_interval = derive_scan_interval(
+        (timestamp for timestamp, _ in scans),
+        default_interval=engine_settings["scan_interval"]
+    )
 
     print(f"Loaded {len(rows)} samples")
     unique_signals = set(signal_ids)
@@ -127,7 +133,14 @@ def analyze_command(args):
     print()
 
     # Initialize engine
-    engine = SignalQualityEngine(scan_interval=scan_interval)
+    engine_settings["signal_defaults"]["sample_interval"] = scan_interval
+    engine = SignalQualityEngine(
+        scan_interval=scan_interval,
+        auto_register=engine_settings["auto_register"],
+        signal_defaults=engine_settings["signal_defaults"]
+    )
+    for signal_id in signal_ids:
+        engine.register_signal(signal_id, engine_settings["signal_configs"][signal_id])
 
     # Process signals
     print("Processing signals...")
@@ -176,13 +189,19 @@ def simulate_command(args):
     print(f"Noise level: {args.noise}")
     print()
 
-    # Initialize engine
-    engine = SignalQualityEngine(scan_interval=0.1)
-    engine.register_signal("SIM_SIGNAL")
+    config = load_config(args.config)
+    engine_settings = build_engine_settings(config, ["SIM_SIGNAL"])
+    scan_interval = engine_settings["scan_interval"]
+    engine = SignalQualityEngine(
+        scan_interval=scan_interval,
+        auto_register=engine_settings["auto_register"],
+        signal_defaults=engine_settings["signal_defaults"]
+    )
+    engine.register_signal("SIM_SIGNAL", engine_settings["signal_configs"]["SIM_SIGNAL"])
 
     # Generate signal
     print("Generating signal...")
-    t = np.linspace(0, args.duration * 0.1, args.duration)
+    t = np.linspace(0, args.duration * scan_interval, args.duration)
     clean_signal = 10.0 * np.sin(2 * np.pi * 0.5 * t)
     noise = np.random.normal(0, args.noise, args.duration)
     signal = clean_signal + noise
@@ -331,6 +350,10 @@ def main():
         action='store_true',
         help='Generate plots (requires matplotlib)'
     )
+    analyze_parser.add_argument(
+        '--config',
+        help='Path to SQE YAML configuration file'
+    )
 
     # Simulate command
     simulate_parser = subparsers.add_parser('simulate', help='Simulate signal processing')
@@ -350,6 +373,10 @@ def main():
         '--plot',
         action='store_true',
         help='Generate plots (requires matplotlib)'
+    )
+    simulate_parser.add_argument(
+        '--config',
+        help='Path to SQE YAML configuration file'
     )
 
     # Version command
