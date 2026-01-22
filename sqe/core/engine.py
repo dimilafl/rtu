@@ -78,6 +78,8 @@ class ProcessedSignal:
     sqi: float
     quality_class: str
     sqi_trend: str
+    sqi_components: Dict[str, float]
+    sqi_weights: Dict[str, float]
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
@@ -198,7 +200,9 @@ class SignalProcessor:
             dominant_frequency=freq_result["dominant_frequency"],
             sqi=sqi_result["sqi"],
             quality_class=sqi_result["quality_class"],
-            sqi_trend=sqi_result["trend"]
+            sqi_trend=sqi_result["trend"],
+            sqi_components=sqi_result["components"],
+            sqi_weights=sqi_result["weights"]
         )
 
     def reset(self) -> None:

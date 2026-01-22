@@ -88,6 +88,8 @@ if result:
     print(f"SQI: {result['sqi']}")
     print(f"Filtered: {result['filtered_ewma']}")
     print(f"Quality: {result['quality_class']}")
+    if result.get("sqi_components"):
+        print(f"Components: {result['sqi_components']}")
 ```
 
 **Option B: Process Scan Batch**
@@ -105,6 +107,8 @@ results = adapter.process_scan(points)
 
 for point_id, result in results.items():
     print(f"{point_id}: SQI={result['sqi']:.1f}")
+    if result.get("sqi_components"):
+        print(f"  Components: {result['sqi_components']}")
 ```
 
 #### 5. Convert Simulator Data Format
@@ -154,6 +158,8 @@ for scan in range(100):
     for point_id, result in results.items():
         if result['sqi'] < 50:
             print(f"Warning: {point_id} has poor quality (SQI={result['sqi']:.1f})")
+            if result.get("sqi_components"):
+                print(f"  Components: {result['sqi_components']}")
 
     time.sleep(0.1)  # 100ms scan interval
 ```
@@ -562,6 +568,8 @@ result = engine.update_single("AI_001", value)
 
 # Examine SQI components
 print(f"SQI: {result.sqi}")
+if result.sqi_components:
+    print(f"  Components: {result.sqi_components}")
 print(f"  Noise level: {result.noise_level}")
 print(f"  Drift: {result.drift}")
 print(f"  Spike freq: {result.spike_frequency}")

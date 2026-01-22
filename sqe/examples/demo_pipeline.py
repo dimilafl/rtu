@@ -104,6 +104,12 @@ def main():
                 print(f"    Raw: {result.raw:.2f}")
                 print(f"    Filtered: {result.filtered_ewma:.2f}")
                 print(f"    SQI: {result.sqi:.1f} ({result.quality_class})")
+                if result.sqi_components:
+                    components = ", ".join(
+                        f"{name}={score:.1f}"
+                        for name, score in result.sqi_components.items()
+                    )
+                    print(f"    SQI Components: {components}")
                 print(f"    Drift: {result.drift:.3f} ({result.drift_type})")
                 print(f"    Noise: {result.noise_level:.3f}")
 
@@ -149,6 +155,12 @@ def main():
         if sig_id in final_results:
             result = final_results[sig_id]
             print(f"{sig_id}: SQI = {result.sqi:.1f} ({result.quality_class})")
+            if result.sqi_components:
+                components = ", ".join(
+                    f"{name}={score:.1f}"
+                    for name, score in result.sqi_components.items()
+                )
+                print(f"  Components: {components}")
 
     print()
     print("Demo complete!")

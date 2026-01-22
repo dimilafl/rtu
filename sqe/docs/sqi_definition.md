@@ -457,6 +457,8 @@ result = sqi_calc.calculate(
 print(f"SQI: {result['sqi']:.1f}")
 print(f"Class: {result['quality_class']}")
 print(f"Trend: {result['trend']}")
+if result.get("components"):
+    print(f"Components: {result['components']}")
 ```
 
 ### Component Analysis
