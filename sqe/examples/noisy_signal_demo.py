@@ -5,13 +5,21 @@ Demonstrates filter effectiveness and signal quality degradation
 with increasing noise levels.
 """
 
-import numpy as np
+import math
+import random
+import statistics
+import sys
+from pathlib import Path
+
+ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 from sqe.core.filters import EWMAFilter, MovingAverageFilter
 from sqe.core.variance import VarianceCalculator, SpikeDetector
 from sqe.core.sqi import SignalQualityIndex
 
 
-def generate_signal_with_noise(samples: int, noise_std: float) -> np.ndarray:
+def generate_signal_with_noise(samples: int, noise_std: float) -> list[float]:
     """
     Generate sinusoidal signal with additive Gaussian noise.
 
@@ -22,10 +30,14 @@ def generate_signal_with_noise(samples: int, noise_std: float) -> np.ndarray:
     Returns:
         Noisy signal array
     """
-    t = np.linspace(0, 10, samples)
-    clean = 10.0 * np.sin(2 * np.pi * 0.5 * t)
-    noise = np.random.normal(0, noise_std, samples)
-    return clean + noise
+    if samples <= 1:
+        t_values = [0.0]
+    else:
+        step = 10 / (samples - 1)
+        t_values = [i * step for i in range(samples)]
+    clean = [10.0 * math.sin(2 * math.pi * 0.5 * t) for t in t_values]
+    noise = [random.gauss(0, noise_std) for _ in range(samples)]
+    return [c + n for c, n in zip(clean, noise)]
 
 
 def demo_filter_comparison():
@@ -36,7 +48,7 @@ def demo_filter_comparison():
     print()
 
     # Generate noisy signal
-    np.random.seed(42)
+    random.seed(42)
     samples = 100
     noise_std = 2.0
     signal = generate_signal_with_noise(samples, noise_std)
@@ -57,10 +69,10 @@ def demo_filter_comparison():
         ma_out.append(ma_filter.update(s))
 
     # Calculate output variance (measure of smoothing)
-    raw_var = np.var(signal[50:])  # Skip initial transient
-    ewma_slow_var = np.var(ewma_slow_out[50:])
-    ewma_fast_var = np.var(ewma_fast_out[50:])
-    ma_var = np.var(ma_out[50:])
+    raw_var = statistics.pvariance(signal[50:])  # Skip initial transient
+    ewma_slow_var = statistics.pvariance(ewma_slow_out[50:])
+    ewma_fast_var = statistics.pvariance(ewma_fast_out[50:])
+    ma_var = statistics.pvariance(ma_out[50:])
 
     print(f"Input Signal Variance: {raw_var:.2f}")
     print()
@@ -79,14 +91,15 @@ def demo_spike_detection():
     print()
 
     # Generate signal with spikes
-    np.random.seed(42)
+    random.seed(42)
     samples = 100
-    signal = 10.0 * np.sin(np.linspace(0, 10, samples))
+    step = 10 / (samples - 1)
+    signal = [10.0 * math.sin(i * step) for i in range(samples)]
 
     # Add random spikes
     spike_indices = [20, 45, 73, 91]
     for idx in spike_indices:
-        signal[idx] += np.random.choice([-1, 1]) * 15.0  # Large deviation
+        signal[idx] += random.choice([-1, 1]) * 15.0  # Large deviation
 
     # Initialize spike detector
     detector = SpikeDetector(window_size=20, k_sigma=3.0)
@@ -120,7 +133,7 @@ def demo_noise_impact_on_sqi():
 
     for noise_std in noise_levels:
         # Generate signal
-        np.random.seed(42)
+        random.seed(42)
         signal = generate_signal_with_noise(100, noise_std)
 
         # Calculate variance
@@ -156,15 +169,15 @@ def demo_variance_calculation():
     print()
 
     # Generate signal with changing noise characteristics
-    np.random.seed(42)
+    random.seed(42)
 
     # Part 1: Low noise
-    low_noise = 10.0 + np.random.normal(0, 0.5, 50)
+    low_noise = [10.0 + random.gauss(0, 0.5) for _ in range(50)]
 
     # Part 2: High noise
-    high_noise = 10.0 + np.random.normal(0, 2.0, 50)
+    high_noise = [10.0 + random.gauss(0, 2.0) for _ in range(50)]
 
-    signal = np.concatenate([low_noise, high_noise])
+    signal = low_noise + high_noise
 
     # Calculate variance
     var_calc = VarianceCalculator(window_size=20)
