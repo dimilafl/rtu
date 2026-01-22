@@ -68,6 +68,9 @@ class SignalBuffer:
         if n is None:
             return np.array([sample for sample in self.buffer if sample is not None])
 
+        if n <= 0:
+            return np.array([])
+
         # Get last n samples
         samples = list(self.buffer)[-n:]
         return np.array([sample for sample in samples if sample is not None])
