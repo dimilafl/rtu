@@ -73,6 +73,38 @@ class VarianceCalculator:
             "sample_count": len(samples)
         }
 
+    def get_stats(self) -> dict:
+        """
+        Calculate statistics without updating the buffer.
+
+        Returns:
+            Dictionary with mean, variance, std_dev, and noise_level
+        """
+        samples = self.buffer.get_samples()
+
+        if len(samples) < 2:
+            mean = float(np.mean(samples)) if len(samples) > 0 else 0.0
+            return {
+                "mean": mean,
+                "variance": 0.0,
+                "std_dev": 0.0,
+                "noise_level": 0.0,
+                "sample_count": len(samples)
+            }
+
+        mean = np.mean(samples)
+        variance = np.var(samples, ddof=1)  # Sample variance
+        std_dev = np.sqrt(variance)
+        cv = std_dev / abs(mean) if abs(mean) > 1e-9 else std_dev
+
+        return {
+            "mean": float(mean),
+            "variance": float(variance),
+            "std_dev": float(std_dev),
+            "noise_level": float(cv),
+            "sample_count": len(samples)
+        }
+
     def get_spike_threshold(self, k: float = 3.0) -> Optional[float]:
         """
         Calculate spike detection threshold.
@@ -87,13 +119,12 @@ class VarianceCalculator:
         """
         samples = self.buffer.get_samples()
 
-        if len(samples) < 2:
+        stats = self.get_stats()
+
+        if stats["sample_count"] < 2:
             return None
 
-        mean = np.mean(samples)
-        std_dev = np.std(samples, ddof=1)
-
-        return mean + k * std_dev
+        return stats["mean"] + k * stats["std_dev"]
 
     def is_spike(self, x: float, k: float = 3.0) -> bool:
         """
@@ -106,15 +137,12 @@ class VarianceCalculator:
         Returns:
             True if value exceeds threshold
         """
-        threshold = self.get_spike_threshold(k)
+        stats = self.get_stats()
 
-        if threshold is None:
+        if stats["sample_count"] < 2 or stats["std_dev"] <= 0:
             return False
 
-        samples = self.buffer.get_samples()
-        mean = np.mean(samples)
-
-        return abs(x - mean) > k * np.std(samples, ddof=1)
+        return abs(x - stats["mean"]) > k * stats["std_dev"]
 
     def reset(self) -> None:
         """Reset calculator state."""
@@ -216,8 +244,9 @@ class SpikeDetector:
         """
         self.total_samples += 1
 
-        # Update variance statistics
-        stats = self.variance_calc.update(x)
+        # Baseline statistics before updating with current sample
+        baseline_stats = self.variance_calc.get_stats()
+        baseline_threshold = self.variance_calc.get_spike_threshold(self.k_sigma)
 
         # Check for spike
         is_spike_candidate = self.variance_calc.is_spike(x, self.k_sigma)
@@ -231,6 +260,9 @@ class SpikeDetector:
         if is_spike:
             self.spike_count += 1
 
+        # Update variance statistics after spike evaluation
+        self.variance_calc.update(x)
+
         # Calculate spike frequency
         spike_frequency = self.spike_count / self.total_samples if self.total_samples > 0 else 0
 
@@ -238,8 +270,12 @@ class SpikeDetector:
             "is_spike": is_spike,
             "spike_count": self.spike_count,
             "spike_frequency": spike_frequency,
-            "threshold": self.variance_calc.get_spike_threshold(self.k_sigma),
-            "deviation_from_mean": abs(x - stats["mean"]) / stats["std_dev"] if stats["std_dev"] > 0 else 0
+            "threshold": baseline_threshold,
+            "deviation_from_mean": (
+                abs(x - baseline_stats["mean"]) / baseline_stats["std_dev"]
+                if baseline_stats["std_dev"] > 0
+                else 0
+            )
         }
 
     def reset(self) -> None:
