@@ -32,6 +32,19 @@ class TestSQIWeights:
                 normalized.missing)
         assert abs(total - 1.0) < 0.01
 
+    def test_normalize_zero_total_raises(self):
+        """Test that zero-total weights raise an error."""
+        weights = SQIWeights(
+            noise=0.0,
+            drift=0.0,
+            spikes=0.0,
+            oscillation=0.0,
+            missing=0.0
+        )
+
+        with pytest.raises(ValueError, match="weights must sum to a positive value"):
+            weights.normalize()
+
 
 class TestSignalQualityIndex:
     """Test SQI calculator."""
