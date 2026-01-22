@@ -20,9 +20,11 @@ from sqe.core.engine import SignalQualityEngine
 from sqe.config.loader import (
     ConfigError,
     build_signal_config,
+    configure_logging,
     get_engine_auto_register,
     get_engine_max_signals,
     get_engine_scan_interval,
+    get_logging_settings,
     load_config,
 )
 from sqe import __version__
@@ -131,6 +133,7 @@ def analyze_command(args):
     except ConfigError as exc:
         print(f"Error loading config: {exc}")
         return 1
+    configure_logging(config)
     signal_ids, scans = build_scans(rows)
     scan_interval = derive_scan_interval(
         (timestamp for timestamp, _ in scans),
@@ -138,6 +141,7 @@ def analyze_command(args):
     )
     auto_register = get_engine_auto_register(config)
     max_signals = get_engine_max_signals(config)
+    logging_settings = get_logging_settings(config)
 
     print(f"Loaded {len(rows)} samples")
     unique_signals = set(signal_ids)
@@ -148,7 +152,10 @@ def analyze_command(args):
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
         auto_register=auto_register,
-        max_signals=max_signals
+        max_signals=max_signals,
+        log_scan_timing=logging_settings["log_scan_timing"],
+        log_quality_changes=logging_settings["log_quality_changes"],
+        log_anomalies=logging_settings["log_anomalies"],
     )
     for signal_id in signal_ids:
         engine.register_signal(
@@ -209,11 +216,16 @@ def simulate_command(args):
     except ConfigError as exc:
         print(f"Error loading config: {exc}")
         return 1
+    configure_logging(config)
     scan_interval = get_engine_scan_interval(config)
+    logging_settings = get_logging_settings(config)
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
         auto_register=get_engine_auto_register(config),
-        max_signals=get_engine_max_signals(config)
+        max_signals=get_engine_max_signals(config),
+        log_scan_timing=logging_settings["log_scan_timing"],
+        log_quality_changes=logging_settings["log_quality_changes"],
+        log_anomalies=logging_settings["log_anomalies"],
     )
     engine.register_signal(
         "SIM_SIGNAL",
