@@ -7,6 +7,7 @@ Designed for deterministic, real-time operation within PLC scan cycles.
 
 from typing import Dict, Optional, List
 from dataclasses import dataclass, asdict
+import logging
 import time
 
 from sqe.core.filters import EWMAFilter, HighPassFilter, MovingAverageFilter
@@ -44,6 +45,12 @@ class SignalConfig:
     sqi_drift_threshold: float = 1.0
     sqi_spike_threshold: float = 0.05
     sqi_oscillation_threshold: float = 0.3
+
+    # Alert thresholds
+    sqi_critical_threshold: float = 25.0
+    sqi_warning_threshold: float = 50.0
+    drift_alert_threshold: float = 5.0
+    spike_alert_threshold: float = 0.1
 
     def __post_init__(self):
         """Set default reference frequencies if not provided."""
@@ -87,6 +94,11 @@ class ProcessedSignal:
     sqi_trend: str
     sqi_components: Dict[str, float]
     sqi_weights: Dict[str, float]
+
+    # Alerts
+    alert_level: str
+    drift_alert: bool
+    spike_alert: bool
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
@@ -150,6 +162,7 @@ class SignalProcessor:
 
         # Track missing samples
         self.missing_count = 0
+        self.last_quality_class: Optional[str] = None
 
     def update(self, x: Optional[float]) -> Optional[ProcessedSignal]:
         """
@@ -194,6 +207,16 @@ class SignalProcessor:
             oscillation_energy=freq_result["total_oscillation_energy"],
             missing_ratio=missing_ratio
         )
+        self.last_quality_class = sqi_result["quality_class"]
+
+        alert_level = "none"
+        if sqi_result["sqi"] <= self.config.sqi_critical_threshold:
+            alert_level = "critical"
+        elif sqi_result["sqi"] <= self.config.sqi_warning_threshold:
+            alert_level = "warning"
+
+        drift_alert = abs(drift_event.drift_rate) >= self.config.drift_alert_threshold
+        spike_alert = spike_result["spike_frequency"] >= self.config.spike_alert_threshold
 
         # Build processed signal output
         return ProcessedSignal(
@@ -218,13 +241,17 @@ class SignalProcessor:
             quality_class=sqi_result["quality_class"],
             sqi_trend=sqi_result["trend"],
             sqi_components=sqi_result["components"],
-            sqi_weights=sqi_result["weights"]
+            sqi_weights=sqi_result["weights"],
+            alert_level=alert_level,
+            drift_alert=drift_alert,
+            spike_alert=spike_alert
         )
 
     def reset(self) -> None:
         """Reset all processor state."""
         self.sample_count = 0
         self.missing_count = 0
+        self.last_quality_class = None
         self.ewma_filter.reset()
         self.ma_filter.reset()
         self.hp_filter.reset()
@@ -247,7 +274,11 @@ class SignalQualityEngine:
         self,
         scan_interval: float = 0.1,
         auto_register: bool = True,
-        max_signals: Optional[int] = None
+        max_signals: Optional[int] = None,
+        log_scan_timing: bool = False,
+        log_quality_changes: bool = False,
+        log_anomalies: bool = False,
+        logger: Optional[logging.Logger] = None,
     ):
         """
         Initialize Signal Quality Engine.
@@ -265,6 +296,10 @@ class SignalQualityEngine:
         self.processors: Dict[str, SignalProcessor] = {}
         self.scan_count = 0
         self.last_scan_time: Optional[float] = None
+        self.log_scan_timing = log_scan_timing
+        self.log_quality_changes = log_quality_changes
+        self.log_anomalies = log_anomalies
+        self.logger = logger or logging.getLogger(__name__)
 
     def register_signal(
         self,
@@ -317,7 +352,8 @@ class SignalQualityEngine:
         # Track scan timing
         if self.last_scan_time is not None:
             actual_interval = current_time - self.last_scan_time
-            # Could log warning if actual_interval deviates significantly
+            if self.log_scan_timing:
+                self.logger.debug("Scan interval %.4fs", actual_interval)
 
         self.last_scan_time = current_time
 
@@ -330,8 +366,33 @@ class SignalQualityEngine:
                 # Auto-register unknown signals
                 self.register_signal(signal_id)
 
-            processed = self.processors[signal_id].update(value)
+            processor = self.processors[signal_id]
+            prev_quality = processor.last_quality_class
+            processed = processor.update(value)
             if processed is not None:
+                if (
+                    self.log_quality_changes
+                    and prev_quality is not None
+                    and prev_quality != processed.quality_class
+                ):
+                    self.logger.info(
+                        "Signal %s quality changed %s -> %s",
+                        signal_id,
+                        prev_quality,
+                        processed.quality_class,
+                    )
+                if self.log_anomalies and (
+                    processed.drift_type != "none"
+                    or processed.is_spike
+                    or processed.alert_level != "none"
+                ):
+                    self.logger.warning(
+                        "Signal %s anomaly drift=%s spike=%s alert=%s",
+                        signal_id,
+                        processed.drift_type,
+                        processed.is_spike,
+                        processed.alert_level,
+                    )
                 results[signal_id] = processed
 
         return results

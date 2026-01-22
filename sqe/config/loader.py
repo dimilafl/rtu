@@ -7,6 +7,7 @@ Loads sqe/config/defaults.yaml and merges optional user overrides.
 from __future__ import annotations
 
 from copy import deepcopy
+import logging
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -84,6 +85,29 @@ def get_engine_max_signals(config: Dict[str, Any]) -> Optional[int]:
     return max_signals if max_signals > 0 else None
 
 
+def get_logging_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Get logging settings from config with defaults."""
+    logging_config = config.get("logging", {})
+    return {
+        "level": logging_config.get("level", "INFO"),
+        "log_scan_timing": logging_config.get("log_scan_timing", False),
+        "log_quality_changes": logging_config.get("log_quality_changes", True),
+        "log_anomalies": logging_config.get("log_anomalies", True),
+    }
+
+
+def configure_logging(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Configure Python logging based on config settings."""
+    settings = get_logging_settings(config)
+    level_name = str(settings["level"]).upper()
+    level = getattr(logging, level_name, logging.INFO)
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    return settings
+
+
 def build_signal_config(
     config: Dict[str, Any],
     signal_id: str,
@@ -107,6 +131,10 @@ def build_signal_config(
         sqi.thresholds.drift -> SignalConfig.sqi_drift_threshold
         sqi.thresholds.spike_frequency -> SignalConfig.sqi_spike_threshold
         sqi.thresholds.oscillation -> SignalConfig.sqi_oscillation_threshold
+        alerts.sqi_critical_threshold -> SignalConfig.sqi_critical_threshold
+        alerts.sqi_warning_threshold -> SignalConfig.sqi_warning_threshold
+        alerts.drift_alert_threshold -> SignalConfig.drift_alert_threshold
+        alerts.spike_alert_threshold -> SignalConfig.spike_alert_threshold
     """
     filters = config.get("filters", {})
     drift = config.get("drift", {})
@@ -114,6 +142,7 @@ def build_signal_config(
     frequency = config.get("frequency", {})
     sqi = config.get("sqi", {})
     sqi_thresholds = sqi.get("thresholds", {})
+    alerts = config.get("alerts", {})
 
     return SignalConfig(
         signal_id=signal_id,
@@ -131,4 +160,8 @@ def build_signal_config(
         sqi_drift_threshold=sqi_thresholds.get("drift", 1.0),
         sqi_spike_threshold=sqi_thresholds.get("spike_frequency", 0.05),
         sqi_oscillation_threshold=sqi_thresholds.get("oscillation", 0.3),
+        sqi_critical_threshold=alerts.get("sqi_critical_threshold", 25.0),
+        sqi_warning_threshold=alerts.get("sqi_warning_threshold", 50.0),
+        drift_alert_threshold=alerts.get("drift_alert_threshold", 5.0),
+        spike_alert_threshold=alerts.get("spike_alert_threshold", 0.1),
     )

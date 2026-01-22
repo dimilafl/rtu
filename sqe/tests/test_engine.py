@@ -87,6 +87,23 @@ class TestSignalProcessor:
         assert result.variance >= 0
         assert result.sqi >= 0
 
+    def test_alert_thresholds(self):
+        """Test alert threshold evaluation."""
+        config = SignalConfig(
+            signal_id="test",
+            sqi_critical_threshold=100.0,
+            sqi_warning_threshold=100.0,
+            drift_alert_threshold=0.0,
+            spike_alert_threshold=0.0,
+        )
+        processor = SignalProcessor(config)
+
+        result = processor.update(10.0)
+
+        assert result.alert_level == "critical"
+        assert result.drift_alert is True
+        assert result.spike_alert is True
+
     def test_drift_detection_in_pipeline(self):
         """Test that drift is detected in pipeline."""
         config = SignalConfig(signal_id="test")
