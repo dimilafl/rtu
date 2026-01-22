@@ -94,19 +94,26 @@ def load_signal_from_csv(filepath: str) -> List[SignalRow]:
 def build_scans(rows: Iterable[SignalRow]) -> Tuple[List[str], List[Tuple[Optional[float], Dict[str, Optional[float]]]]]:
     signal_ids: List[str] = []
     seen_signals = set()
-    grouped: Dict[Optional[float], Dict[str, Optional[float]]] = {}
+    grouped: Dict[float, Dict[str, Optional[float]]] = {}
+    missing_timestamp_rows: List[Dict[str, Optional[float]]] = []
 
     for row in rows:
         if row.signal_id not in seen_signals:
             seen_signals.add(row.signal_id)
             signal_ids.append(row.signal_id)
-        grouped.setdefault(row.timestamp, {})[row.signal_id] = row.value
+        if row.timestamp is None:
+            missing_timestamp_rows.append({row.signal_id: row.value})
+        else:
+            grouped.setdefault(row.timestamp, {})[row.signal_id] = row.value
 
-    sorted_timestamps = sorted(grouped, key=lambda timestamp: (timestamp is None, timestamp))
     scans = [
         (timestamp, {signal_id: grouped[timestamp].get(signal_id) for signal_id in signal_ids})
-        for timestamp in sorted_timestamps
+        for timestamp in sorted(grouped)
     ]
+    scans.extend(
+        (None, {signal_id: scan.get(signal_id) for signal_id in signal_ids})
+        for scan in missing_timestamp_rows
+    )
     return signal_ids, scans
 
 
