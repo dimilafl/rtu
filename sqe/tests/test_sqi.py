@@ -55,6 +55,26 @@ class TestSignalQualityIndex:
         assert sqi.sample_count == 0
         assert len(sqi.sqi_history) == 0
 
+    @pytest.mark.parametrize(
+        ("kwargs", "expected_message"),
+        [
+            ({"noise_threshold": 0}, "noise_threshold=0"),
+            ({"drift_threshold": -1.0}, "drift_threshold=-1.0"),
+        ],
+    )
+    def test_invalid_thresholds_raise(self, kwargs, expected_message):
+        """Test invalid thresholds raise with details."""
+        with pytest.raises(ValueError, match=expected_message):
+            SignalQualityIndex(**kwargs)
+
+    def test_multiple_invalid_thresholds_reported(self):
+        """Test multiple invalid thresholds are listed."""
+        with pytest.raises(
+            ValueError,
+            match=r"noise_threshold=0.*spike_threshold=-0.1",
+        ):
+            SignalQualityIndex(noise_threshold=0, spike_threshold=-0.1)
+
     def test_perfect_quality(self):
         """Test perfect signal quality (all zeros)."""
         sqi = SignalQualityIndex()

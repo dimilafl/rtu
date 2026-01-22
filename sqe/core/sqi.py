@@ -75,6 +75,23 @@ class SignalQualityIndex:
             spike_threshold: Spike frequency for 0 quality score
             oscillation_threshold: Oscillation energy for 0 quality score
         """
+        thresholds = {
+            "noise_threshold": noise_threshold,
+            "drift_threshold": drift_threshold,
+            "spike_threshold": spike_threshold,
+            "oscillation_threshold": oscillation_threshold,
+        }
+        invalid_thresholds = [
+            f"{name}={value}"
+            for name, value in thresholds.items()
+            if value <= 0
+        ]
+        if invalid_thresholds:
+            joined_thresholds = ", ".join(invalid_thresholds)
+            raise ValueError(
+                "Invalid thresholds (must be > 0): "
+                f"{joined_thresholds}"
+            )
         self.weights = (weights or SQIWeights()).normalize()
         self.noise_threshold = noise_threshold
         self.drift_threshold = drift_threshold
