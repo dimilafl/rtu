@@ -61,6 +61,15 @@ class TestSignalProcessor:
         assert "noise" in result.sqi_weights
         assert "missing" in result.sqi_weights
 
+    def test_timestamp_passthrough(self):
+        """Test passing explicit timestamp into processor."""
+        config = SignalConfig(signal_id="test")
+        processor = SignalProcessor(config)
+
+        result = processor.update(10.0, timestamp=123.45)
+
+        assert result.timestamp == 123.45
+
     def test_process_missing_sample(self):
         """Test processing missing sample."""
         config = SignalConfig(signal_id="test")

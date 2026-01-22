@@ -1,8 +1,15 @@
 """Tests for CLI helpers."""
 
 import pytest
+from types import SimpleNamespace
 
-from sqe.cli.sqe_cli import build_scans, derive_scan_interval, load_signal_from_csv
+from sqe.cli.sqe_cli import (
+    analyze_command,
+    build_scans,
+    derive_scan_interval,
+    incidents_command,
+    load_signal_from_csv,
+)
 
 
 def test_load_signal_from_csv_parses_missing_values(tmp_path):
@@ -88,3 +95,51 @@ def test_build_scans_with_staggered_timestamps_and_missing_entries(tmp_path):
 
     scan_interval = derive_scan_interval(timestamps)
     assert scan_interval == pytest.approx(0.1)
+
+
+def test_analyze_command_accepts_timestamps(tmp_path, capsys):
+    """Ensure analyze command handles timestamped CSVs without errors."""
+    csv_content = "\n".join([
+        "timestamp,signal_id,value",
+        "0.0,AI_001,10.0",
+        "0.1,AI_001,10.5",
+        ""
+    ])
+    csv_path = tmp_path / "signals.csv"
+    csv_path.write_text(csv_content)
+
+    args = SimpleNamespace(
+        signal_file=str(csv_path),
+        plot=False,
+        config=None,
+    )
+
+    assert analyze_command(args) == 0
+    capsys.readouterr()
+
+
+def test_incidents_command_writes_output(tmp_path, capsys):
+    """Ensure incidents command writes JSONL output."""
+    csv_content = "\n".join([
+        "timestamp,signal_id,value",
+        "0.0,AI_001,",
+        "0.1,AI_001,",
+        "0.2,AI_001,",
+        "0.3,AI_001,",
+        "0.4,AI_001,",
+        ""
+    ])
+    csv_path = tmp_path / "signals.csv"
+    csv_path.write_text(csv_content)
+    out_path = tmp_path / "incidents.jsonl"
+
+    args = SimpleNamespace(
+        signal_file=str(csv_path),
+        config=None,
+        out=str(out_path),
+    )
+
+    assert incidents_command(args) == 0
+    contents = out_path.read_text().strip()
+    assert contents
+    capsys.readouterr()

@@ -5,18 +5,22 @@ SQE Command-Line Interface
 Usage:
     sqe analyze --signal-file data.csv [--plot]
     sqe simulate --duration 100 --noise 1.0 [--plot]
+    sqe incidents --signal-file data.csv [--out incidents.jsonl]
     sqe version
 """
 
 import argparse
 import sys
 import csv
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import median
 from typing import Dict, Iterable, List, Optional, Tuple
+from collections import Counter
 
 from sqe.core.engine import SignalQualityEngine
+from sqe.core.incidents import IncidentEngine, IncidentEventType
 from sqe.config.loader import (
     ConfigError,
     build_signal_config,
@@ -25,8 +29,10 @@ from sqe.config.loader import (
     get_engine_max_signals,
     get_engine_scan_interval,
     get_logging_settings,
+    get_incident_policy,
     load_config,
 )
+from sqe.ops.service import RealtimeQualityService
 from sqe import __version__
 
 
@@ -186,8 +192,8 @@ def analyze_command(args):
 
     # Process signals
     print("Processing signals...")
-    for _, scan_values in scans:
-        engine.update(scan_values)
+    for timestamp, scan_values in scans:
+        engine.update(scan_values, timestamp=timestamp)
 
     # Print statistics
     print()
@@ -310,6 +316,110 @@ def simulate_command(args):
 def version_command(args):
     """Execute version command."""
     print(f"Signal Quality Engine (SQE) version {__version__}")
+    return 0
+
+
+def incidents_command(args):
+    """Execute incidents command."""
+    print(f"Generating incidents from signal file: {args.signal_file}")
+    print()
+
+    if not Path(args.signal_file).exists():
+        print(f"Error: File '{args.signal_file}' not found")
+        return 1
+
+    try:
+        rows = load_signal_from_csv(args.signal_file)
+    except Exception as exc:
+        print(f"Error loading file: {exc}")
+        return 1
+
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"Error loading config: {exc}")
+        return 1
+
+    configure_logging(config)
+    signal_ids, scans = build_scans(rows)
+    scan_interval = derive_scan_interval(
+        (timestamp for timestamp, _ in scans),
+        default_interval=get_engine_scan_interval(config)
+    )
+    auto_register = get_engine_auto_register(config)
+    max_signals = get_engine_max_signals(config)
+    logging_settings = get_logging_settings(config)
+
+    engine = SignalQualityEngine(
+        scan_interval=scan_interval,
+        auto_register=auto_register,
+        max_signals=max_signals,
+        log_scan_timing=logging_settings["log_scan_timing"],
+        log_quality_changes=logging_settings["log_quality_changes"],
+        log_anomalies=logging_settings["log_anomalies"],
+    )
+    for signal_id in signal_ids:
+        engine.register_signal(
+            signal_id,
+            build_signal_config(config, signal_id, scan_interval)
+        )
+
+    incident_engine = IncidentEngine(get_incident_policy(config))
+    service = RealtimeQualityService(engine, incident_engine)
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    event_counts = Counter()
+    cause_counts = Counter()
+
+    with out_path.open("w", encoding="utf-8") as handle:
+        for timestamp, scan_values in scans:
+            _, events = service.process_scan(scan_values, timestamp=timestamp)
+            for event in events:
+                event_counts[event.event_type] += 1
+                if event.event_type == IncidentEventType.STARTED:
+                    cause_counts[event.incident.cause] += 1
+                payload = {
+                    "event_type": event.event_type.value,
+                    "message": event.message,
+                    "recommended_action": event.recommended_action,
+                    "incident": {
+                        "incident_id": event.incident.incident_id,
+                        "signal_id": event.incident.signal_id,
+                        "cause": event.incident.cause.value,
+                        "severity": event.incident.severity.value,
+                        "start_timestamp": event.incident.start_timestamp,
+                        "last_timestamp": event.incident.last_timestamp,
+                        "end_timestamp": event.incident.end_timestamp,
+                        "min_sqi": event.incident.min_sqi,
+                        "last_sqi": event.incident.last_sqi,
+                        "start_scan_index": event.incident.start_scan_index,
+                        "last_scan_index": event.incident.last_scan_index,
+                        "details": event.incident.details,
+                    },
+                }
+                handle.write(json.dumps(payload, sort_keys=True))
+                handle.write("\n")
+        handle.flush()
+
+    started = event_counts[IncidentEventType.STARTED]
+    resolved = event_counts[IncidentEventType.RESOLVED]
+    updated = event_counts[IncidentEventType.UPDATED]
+
+    print("Incident summary")
+    print(f"  Started: {started}")
+    print(f"  Updated: {updated}")
+    print(f"  Resolved: {resolved}")
+    if cause_counts:
+        top_causes = ", ".join(
+            f"{cause.value} ({count})"
+            for cause, count in cause_counts.most_common(3)
+        )
+        print(f"  Top causes: {top_causes}")
+    else:
+        print("  Top causes: none")
+
     return 0
 
 
@@ -436,6 +546,29 @@ def main():
     # Version command
     version_parser = subparsers.add_parser('version', help='Show version')
 
+    # Incidents command
+    incidents_parser = subparsers.add_parser(
+        'incidents',
+        help='Generate incident events from signal file'
+    )
+    incidents_parser.add_argument(
+        '--signal-file',
+        required=True,
+        help=(
+            'Path to CSV file containing signal data. '
+            'Required columns: timestamp, signal_id, value.'
+        )
+    )
+    incidents_parser.add_argument(
+        '--config',
+        help='Optional path to YAML config to override defaults'
+    )
+    incidents_parser.add_argument(
+        '--out',
+        default='incidents.jsonl',
+        help='Output JSONL file for incident events'
+    )
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -450,6 +583,8 @@ def main():
         return simulate_command(args)
     elif args.command == 'version':
         return version_command(args)
+    elif args.command == 'incidents':
+        return incidents_command(args)
     else:
         parser.print_help()
         return 1

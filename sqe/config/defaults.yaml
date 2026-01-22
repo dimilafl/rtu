@@ -93,3 +93,14 @@ alerts:
   sqi_warning_threshold: 50
   drift_alert_threshold: 5.0
   spike_alert_threshold: 0.1  # 10% spike frequency
+
+# Incident policy settings
+incidents:
+  start_sqi_threshold: 50
+  end_sqi_threshold: 60
+  start_persistence_scans: 5
+  end_persistence_scans: 10
+  critical_sqi_threshold: 25
+  component_score_floor: 70
+  emit_update_on_cause_change: true
+  emit_update_on_severity_change: true
