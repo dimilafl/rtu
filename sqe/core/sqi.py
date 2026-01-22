@@ -27,6 +27,23 @@ class SQIWeights:
 
     def normalize(self) -> 'SQIWeights':
         """Normalize weights to sum to 1.0."""
+        negative_fields = [
+            name
+            for name, value in {
+                "noise": self.noise,
+                "drift": self.drift,
+                "spikes": self.spikes,
+                "oscillation": self.oscillation,
+                "missing": self.missing,
+            }.items()
+            if value < 0
+        ]
+        if negative_fields:
+            joined_fields = ", ".join(negative_fields)
+            raise ValueError(
+                "SQI weights must be >= 0 for: "
+                f"{joined_fields}"
+            )
         total = self.noise + self.drift + self.spikes + self.oscillation + self.missing
         if total == 0:
             raise ValueError("SQI weights must sum to a positive value.")

@@ -45,6 +45,50 @@ class TestSQIWeights:
         with pytest.raises(ValueError, match="weights must sum to a positive value"):
             weights.normalize()
 
+    @pytest.mark.parametrize(
+        ("kwargs", "expected_field"),
+        [
+            ({"noise": -0.1}, "noise"),
+            ({"drift": -0.2}, "drift"),
+            ({"spikes": -0.3}, "spikes"),
+            ({"oscillation": -0.4}, "oscillation"),
+            ({"missing": -0.5}, "missing"),
+        ],
+    )
+    def test_negative_weight_raises(self, kwargs, expected_field):
+        """Test negative weights are rejected with field names."""
+        weights = SQIWeights(**kwargs)
+
+        with pytest.raises(ValueError, match=expected_field):
+            weights.normalize()
+
+    def test_multiple_negative_weights_reported(self):
+        """Test multiple negative weights are listed."""
+        weights = SQIWeights(noise=-0.1, spikes=-0.3, missing=-0.2)
+
+        with pytest.raises(ValueError, match=r"noise.*spikes.*missing"):
+            weights.normalize()
+
+    def test_positive_weights_normalize(self):
+        """Test positive weights normalize to sum to 1."""
+        weights = SQIWeights(
+            noise=2.0,
+            drift=1.0,
+            spikes=1.0,
+            oscillation=0.5,
+            missing=0.5,
+        )
+        normalized = weights.normalize()
+
+        total = (
+            normalized.noise
+            + normalized.drift
+            + normalized.spikes
+            + normalized.oscillation
+            + normalized.missing
+        )
+        assert abs(total - 1.0) < 0.01
+
 
 class TestSignalQualityIndex:
     """Test SQI calculator."""
