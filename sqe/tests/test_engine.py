@@ -319,6 +319,16 @@ class TestSignalQualityEngine:
 
         assert engine.scan_count == 5
 
+    def test_update_single_increments_scan_count(self):
+        """Test update_single increments scan count."""
+        engine = SignalQualityEngine()
+        engine.register_signal("sig1")
+
+        for _ in range(3):
+            engine.update_single("sig1", 10.0)
+
+        assert engine.scan_count == 3
+
     def test_missing_sample_tracking(self):
         """Test tracking of missing samples."""
         engine = SignalQualityEngine()

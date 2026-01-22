@@ -420,12 +420,8 @@ class SignalQualityEngine:
         Returns:
             ProcessedSignal or None if missing
         """
-        if signal_id not in self.processors:
-            if not self.auto_register:
-                raise ValueError(f"Signal {signal_id} not registered")
-            self.register_signal(signal_id)
-
-        return self.processors[signal_id].update(value)
+        results = self.update({signal_id: value})
+        return results.get(signal_id)
 
     def get_signal_stats(self, signal_id: str) -> Dict:
         """
