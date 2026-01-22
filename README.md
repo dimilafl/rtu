@@ -82,6 +82,11 @@ results = engine.update({
 # Access results
 for sig_id, result in results.items():
     print(f"{sig_id}: SQI={result.sqi:.1f} ({result.quality_class})")
+    if result.sqi_components:
+        components = ", ".join(
+            f"{name}={score:.1f}" for name, score in result.sqi_components.items()
+        )
+        print(f"  Components: {components}")
 ```
 
 ### CLI Usage

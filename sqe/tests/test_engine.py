@@ -56,6 +56,10 @@ class TestSignalProcessor:
         assert isinstance(result, ProcessedSignal)
         assert result.raw == 10.0
         assert result.signal_id == "test"
+        assert "noise" in result.sqi_components
+        assert "missing" in result.sqi_components
+        assert "noise" in result.sqi_weights
+        assert "missing" in result.sqi_weights
 
     def test_process_missing_sample(self):
         """Test processing missing sample."""

@@ -141,6 +141,9 @@ def demo_noise_impact_on_sqi():
         )
 
         print(f"{noise_std:<15.1f} {result['sqi']:<12.1f} {result['quality_class']:<15}")
+        components = result.get("components")
+        if components:
+            print(f"{'':<15} Components: {components}")
 
     print()
 
