@@ -13,7 +13,7 @@ from sqe.core.filters import EWMAFilter, HighPassFilter, MovingAverageFilter
 from sqe.core.drift import DriftDetector, DriftEvent
 from sqe.core.variance import VarianceCalculator, SpikeDetector
 from sqe.core.freq_detect import OscillationDetector
-from sqe.core.sqi import SignalQualityIndex
+from sqe.core.sqi import SignalQualityIndex, SQIWeights
 
 
 @dataclass
@@ -37,6 +37,13 @@ class SignalConfig:
     reference_frequencies: List[float] = None
     sample_interval: float = 0.1
     freq_window: int = 50
+
+    # SQI parameters
+    sqi_weights: Optional[Dict[str, float]] = None
+    sqi_noise_threshold: float = 0.1
+    sqi_drift_threshold: float = 1.0
+    sqi_spike_threshold: float = 0.05
+    sqi_oscillation_threshold: float = 0.3
 
     def __post_init__(self):
         """Set default reference frequencies if not provided."""
@@ -130,7 +137,16 @@ class SignalProcessor:
         )
 
         # Initialize SQI calculator
-        self.sqi_calc = SignalQualityIndex()
+        sqi_weights = None
+        if self.config.sqi_weights:
+            sqi_weights = SQIWeights(**self.config.sqi_weights)
+        self.sqi_calc = SignalQualityIndex(
+            weights=sqi_weights,
+            noise_threshold=self.config.sqi_noise_threshold,
+            drift_threshold=self.config.sqi_drift_threshold,
+            spike_threshold=self.config.sqi_spike_threshold,
+            oscillation_threshold=self.config.sqi_oscillation_threshold
+        )
 
         # Track missing samples
         self.missing_count = 0

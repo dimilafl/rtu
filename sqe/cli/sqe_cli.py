@@ -17,6 +17,12 @@ from statistics import median
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from sqe.core.engine import SignalQualityEngine
+from sqe.config.loader import (
+    ConfigError,
+    build_signal_config,
+    get_engine_scan_interval,
+    load_config,
+)
 from sqe import __version__
 
 
@@ -118,8 +124,16 @@ def analyze_command(args):
         print(f"Error loading file: {e}")
         return 1
 
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"Error loading config: {exc}")
+        return 1
     signal_ids, scans = build_scans(rows)
-    scan_interval = derive_scan_interval((timestamp for timestamp, _ in scans))
+    scan_interval = derive_scan_interval(
+        (timestamp for timestamp, _ in scans),
+        default_interval=get_engine_scan_interval(config)
+    )
 
     print(f"Loaded {len(rows)} samples")
     unique_signals = set(signal_ids)
@@ -128,6 +142,11 @@ def analyze_command(args):
 
     # Initialize engine
     engine = SignalQualityEngine(scan_interval=scan_interval)
+    for signal_id in signal_ids:
+        engine.register_signal(
+            signal_id,
+            build_signal_config(config, signal_id, scan_interval)
+        )
 
     # Process signals
     print("Processing signals...")
@@ -177,12 +196,21 @@ def simulate_command(args):
     print()
 
     # Initialize engine
-    engine = SignalQualityEngine(scan_interval=0.1)
-    engine.register_signal("SIM_SIGNAL")
+    try:
+        config = load_config(args.config)
+    except ConfigError as exc:
+        print(f"Error loading config: {exc}")
+        return 1
+    scan_interval = get_engine_scan_interval(config)
+    engine = SignalQualityEngine(scan_interval=scan_interval)
+    engine.register_signal(
+        "SIM_SIGNAL",
+        build_signal_config(config, "SIM_SIGNAL", scan_interval)
+    )
 
     # Generate signal
     print("Generating signal...")
-    t = np.linspace(0, args.duration * 0.1, args.duration)
+    t = np.linspace(0, args.duration * scan_interval, args.duration)
     clean_signal = 10.0 * np.sin(2 * np.pi * 0.5 * t)
     noise = np.random.normal(0, args.noise, args.duration)
     signal = clean_signal + noise
@@ -331,6 +359,10 @@ def main():
         action='store_true',
         help='Generate plots (requires matplotlib)'
     )
+    analyze_parser.add_argument(
+        '--config',
+        help='Optional path to YAML config to override defaults'
+    )
 
     # Simulate command
     simulate_parser = subparsers.add_parser('simulate', help='Simulate signal processing')
@@ -350,6 +382,10 @@ def main():
         '--plot',
         action='store_true',
         help='Generate plots (requires matplotlib)'
+    )
+    simulate_parser.add_argument(
+        '--config',
+        help='Optional path to YAML config to override defaults'
     )
 
     # Version command
