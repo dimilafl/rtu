@@ -168,6 +168,14 @@ class TestSignalQualityEngine:
         with pytest.raises(ValueError):
             engine.register_signal("sig1")
 
+    def test_register_signal_id_mismatch(self):
+        """Test mismatched signal IDs raise error."""
+        engine = SignalQualityEngine()
+        config = SignalConfig(signal_id="sig2")
+
+        with pytest.raises(ValueError):
+            engine.register_signal("sig1", config)
+
     def test_unregister_signal(self):
         """Test signal unregistration."""
         engine = SignalQualityEngine()
