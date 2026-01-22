@@ -229,6 +229,7 @@ class SpikeDetector:
         self.k_sigma = k_sigma
         self.debounce_samples = debounce_samples
         self._consecutive_spikes = 0
+        self._was_spike = False
         self.spike_count = 0
         self.total_samples = 0
 
@@ -257,11 +258,12 @@ class SpikeDetector:
 
         is_spike = self._consecutive_spikes >= self.debounce_samples
 
-        if is_spike:
+        if is_spike and not self._was_spike:
             self.spike_count += 1
 
         # Update variance statistics after spike evaluation
         self.variance_calc.update(x)
+        self._was_spike = is_spike
 
         # Calculate spike frequency
         spike_frequency = self.spike_count / self.total_samples if self.total_samples > 0 else 0
@@ -282,5 +284,6 @@ class SpikeDetector:
         """Reset detector state."""
         self.variance_calc.reset()
         self._consecutive_spikes = 0
+        self._was_spike = False
         self.spike_count = 0
         self.total_samples = 0
