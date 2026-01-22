@@ -20,6 +20,47 @@ Optional for CLI plotting:
 pip install matplotlib
 ```
 
+## Configuration Loading
+
+SQE ships with default settings in `sqe/config/defaults.yaml`. You can optionally supply a
+YAML file to override any subset of these settings. The loader will merge your overrides
+on top of the defaults and apply them to both `SignalQualityEngine` and `SignalConfig`
+creation.
+
+```python
+from sqe.config.loader import load_config, build_signal_config, get_engine_scan_interval
+from sqe.core.engine import SignalQualityEngine
+
+config = load_config("path/to/custom_config.yaml")  # omit path to use defaults only
+scan_interval = get_engine_scan_interval(config)
+engine = SignalQualityEngine(scan_interval=scan_interval)
+
+signal_config = build_signal_config(config, signal_id="AI_001", sample_interval=scan_interval)
+engine.register_signal("AI_001", signal_config)
+```
+
+### Mapping of YAML Keys to Engine Settings
+
+The merged configuration uses the following key mapping:
+
+- `engine.scan_interval` → `SignalQualityEngine(scan_interval=...)`
+- `filters.default_ewma_alpha` → `SignalConfig.ewma_alpha`
+- `filters.default_ma_window` → `SignalConfig.ma_window`
+- `drift.small_threshold` → `SignalConfig.small_drift_threshold`
+- `drift.large_threshold` → `SignalConfig.large_drift_threshold`
+- `variance.default_window` → `SignalConfig.variance_window`
+- `variance.spike_k_sigma` → `SignalConfig.spike_k_sigma`
+- `frequency.default_references` → `SignalConfig.reference_frequencies`
+- `frequency.window_size` → `SignalConfig.freq_window`
+- `sqi.weights` → `SignalConfig.sqi_weights`
+- `sqi.thresholds.noise` → `SignalConfig.sqi_noise_threshold`
+- `sqi.thresholds.drift` → `SignalConfig.sqi_drift_threshold`
+- `sqi.thresholds.spike_frequency` → `SignalConfig.sqi_spike_threshold`
+- `sqi.thresholds.oscillation` → `SignalConfig.sqi_oscillation_threshold`
+
+CLI users can provide a config override with `--config path/to/custom.yaml` on the
+`analyze` and `simulate` commands.
+
 ## Integration 1: PointCore-Simulator
 
 ### Overview
