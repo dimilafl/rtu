@@ -326,6 +326,10 @@ class SignalQualityEngine:
                 signal_id=signal_id,
                 sample_interval=self.scan_interval
             )
+        elif config.signal_id != signal_id:
+            raise ValueError(
+                "Signal config signal_id must match registration key"
+            )
 
         self.processors[signal_id] = SignalProcessor(config)
 
