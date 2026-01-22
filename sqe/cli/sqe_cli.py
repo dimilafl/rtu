@@ -66,11 +66,24 @@ def load_signal_from_csv(filepath: str) -> List[SignalRow]:
 
     with open(filepath, 'r') as f:
         reader = csv.DictReader(f)
+        required_fields = {"timestamp", "signal_id", "value"}
+        fieldnames = set(reader.fieldnames or [])
+        missing_fields = required_fields - fieldnames
+        if missing_fields:
+            missing = ", ".join(sorted(missing_fields))
+            raise ValueError(f"Missing required CSV columns: {missing}")
         for row in reader:
+            if not any(value and value.strip() for value in row.values() if value is not None):
+                continue
+            signal_id = (row.get('signal_id') or "").strip()
+            if not signal_id:
+                raise ValueError(
+                    f"Missing signal_id value on line {reader.line_num}"
+                )
             rows.append(
                 SignalRow(
                     timestamp=_parse_optional_float(row.get('timestamp')),
-                    signal_id=row['signal_id'],
+                    signal_id=signal_id,
                     value=_parse_optional_float(row.get('value'))
                 )
             )
