@@ -89,9 +89,10 @@ def build_scans(rows: Iterable[SignalRow]) -> Tuple[List[str], List[Tuple[Option
             signal_ids.append(row.signal_id)
         grouped.setdefault(row.timestamp, {})[row.signal_id] = row.value
 
+    sorted_timestamps = sorted(grouped, key=lambda timestamp: (timestamp is None, timestamp))
     scans = [
         (timestamp, {signal_id: grouped[timestamp].get(signal_id) for signal_id in signal_ids})
-        for timestamp in grouped
+        for timestamp in sorted_timestamps
     ]
     return signal_ids, scans
 
