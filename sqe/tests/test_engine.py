@@ -325,3 +325,19 @@ class TestSignalQualityEngine:
         stats = engine.get_signal_stats("sig1")
         assert stats["missing_count"] == 2
         assert stats["missing_ratio"] == 0.5
+
+    def test_missing_registered_signal_in_scan(self):
+        """Test missing registered signals are tracked when omitted."""
+        engine = SignalQualityEngine()
+        engine.register_signal("sig1")
+        engine.register_signal("sig2")
+
+        engine.update({"sig1": 10.0})
+
+        stats1 = engine.get_signal_stats("sig1")
+        stats2 = engine.get_signal_stats("sig2")
+
+        assert stats1["missing_count"] == 0
+        assert stats1["missing_ratio"] == 0.0
+        assert stats2["missing_count"] == 1
+        assert stats2["missing_ratio"] == 1.0

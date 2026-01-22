@@ -275,6 +275,7 @@ class SignalQualityEngine:
         scan_interval: float = 0.1,
         auto_register: bool = True,
         max_signals: Optional[int] = None,
+        treat_missing_signals_as_none: bool = True,
         log_scan_timing: bool = False,
         log_quality_changes: bool = False,
         log_anomalies: bool = False,
@@ -287,12 +288,14 @@ class SignalQualityEngine:
             scan_interval: Expected time between scans (seconds)
             auto_register: Automatically register unknown signals on update
             max_signals: Maximum number of registered signals (None for unlimited)
+            treat_missing_signals_as_none: Treat missing registered signals as None
         """
         self.scan_interval = scan_interval
         self.auto_register = auto_register
         if max_signals is not None and max_signals <= 0:
             raise ValueError("max_signals must be positive or None")
         self.max_signals = max_signals
+        self.treat_missing_signals_as_none = treat_missing_signals_as_none
         self.processors: Dict[str, SignalProcessor] = {}
         self.scan_count = 0
         self.last_scan_time: Optional[float] = None
@@ -359,13 +362,18 @@ class SignalQualityEngine:
 
         results = {}
 
-        for signal_id, value in signals.items():
+        signal_ids = set(signals.keys())
+        if self.treat_missing_signals_as_none:
+            signal_ids |= set(self.processors.keys())
+
+        for signal_id in signal_ids:
             if signal_id not in self.processors:
                 if not self.auto_register:
                     raise ValueError(f"Signal {signal_id} not registered")
                 # Auto-register unknown signals
                 self.register_signal(signal_id)
 
+            value = signals.get(signal_id)
             processor = self.processors[signal_id]
             prev_quality = processor.last_quality_class
             processed = processor.update(value)
