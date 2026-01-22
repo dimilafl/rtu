@@ -20,6 +20,8 @@ from sqe.core.engine import SignalQualityEngine
 from sqe.config.loader import (
     ConfigError,
     build_signal_config,
+    get_engine_auto_register,
+    get_engine_max_signals,
     get_engine_scan_interval,
     load_config,
 )
@@ -134,6 +136,8 @@ def analyze_command(args):
         (timestamp for timestamp, _ in scans),
         default_interval=get_engine_scan_interval(config)
     )
+    auto_register = get_engine_auto_register(config)
+    max_signals = get_engine_max_signals(config)
 
     print(f"Loaded {len(rows)} samples")
     unique_signals = set(signal_ids)
@@ -141,7 +145,11 @@ def analyze_command(args):
     print()
 
     # Initialize engine
-    engine = SignalQualityEngine(scan_interval=scan_interval)
+    engine = SignalQualityEngine(
+        scan_interval=scan_interval,
+        auto_register=auto_register,
+        max_signals=max_signals
+    )
     for signal_id in signal_ids:
         engine.register_signal(
             signal_id,
@@ -202,7 +210,11 @@ def simulate_command(args):
         print(f"Error loading config: {exc}")
         return 1
     scan_interval = get_engine_scan_interval(config)
-    engine = SignalQualityEngine(scan_interval=scan_interval)
+    engine = SignalQualityEngine(
+        scan_interval=scan_interval,
+        auto_register=get_engine_auto_register(config),
+        max_signals=get_engine_max_signals(config)
+    )
     engine.register_signal(
         "SIM_SIGNAL",
         build_signal_config(config, "SIM_SIGNAL", scan_interval)

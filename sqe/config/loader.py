@@ -70,6 +70,20 @@ def get_engine_scan_interval(config: Dict[str, Any]) -> float:
     return config.get("engine", {}).get("scan_interval", 0.1)
 
 
+def get_engine_auto_register(config: Dict[str, Any]) -> bool:
+    """Get auto-registration toggle from config with fallback to default."""
+    return config.get("engine", {}).get("auto_register", True)
+
+
+def get_engine_max_signals(config: Dict[str, Any]) -> Optional[int]:
+    """Get maximum signal count from config with fallback to default."""
+    max_signals = config.get("performance", {}).get("max_signals", 1000)
+    if max_signals is None:
+        return None
+    max_signals = int(max_signals)
+    return max_signals if max_signals > 0 else None
+
+
 def build_signal_config(
     config: Dict[str, Any],
     signal_id: str,

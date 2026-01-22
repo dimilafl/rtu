@@ -243,14 +243,25 @@ class SignalQualityEngine:
     for signal registration and processing.
     """
 
-    def __init__(self, scan_interval: float = 0.1):
+    def __init__(
+        self,
+        scan_interval: float = 0.1,
+        auto_register: bool = True,
+        max_signals: Optional[int] = None
+    ):
         """
         Initialize Signal Quality Engine.
 
         Args:
             scan_interval: Expected time between scans (seconds)
+            auto_register: Automatically register unknown signals on update
+            max_signals: Maximum number of registered signals (None for unlimited)
         """
         self.scan_interval = scan_interval
+        self.auto_register = auto_register
+        if max_signals is not None and max_signals <= 0:
+            raise ValueError("max_signals must be positive or None")
+        self.max_signals = max_signals
         self.processors: Dict[str, SignalProcessor] = {}
         self.scan_count = 0
         self.last_scan_time: Optional[float] = None
@@ -269,6 +280,8 @@ class SignalQualityEngine:
         """
         if signal_id in self.processors:
             raise ValueError(f"Signal {signal_id} already registered")
+        if self.max_signals is not None and len(self.processors) >= self.max_signals:
+            raise ValueError("Maximum number of registered signals reached")
 
         if config is None:
             config = SignalConfig(
@@ -312,6 +325,8 @@ class SignalQualityEngine:
 
         for signal_id, value in signals.items():
             if signal_id not in self.processors:
+                if not self.auto_register:
+                    raise ValueError(f"Signal {signal_id} not registered")
                 # Auto-register unknown signals
                 self.register_signal(signal_id)
 
@@ -333,6 +348,8 @@ class SignalQualityEngine:
             ProcessedSignal or None if missing
         """
         if signal_id not in self.processors:
+            if not self.auto_register:
+                raise ValueError(f"Signal {signal_id} not registered")
             self.register_signal(signal_id)
 
         return self.processors[signal_id].update(value)
