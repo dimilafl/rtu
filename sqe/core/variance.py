@@ -200,6 +200,7 @@ class SpikeDetector:
         self.variance_calc = VarianceCalculator(window_size)
         self.k_sigma = k_sigma
         self.debounce_samples = debounce_samples
+        self._consecutive_spikes = 0
         self.spike_count = 0
         self.total_samples = 0
 
@@ -219,7 +220,13 @@ class SpikeDetector:
         stats = self.variance_calc.update(x)
 
         # Check for spike
-        is_spike = self.variance_calc.is_spike(x, self.k_sigma)
+        is_spike_candidate = self.variance_calc.is_spike(x, self.k_sigma)
+        if is_spike_candidate:
+            self._consecutive_spikes += 1
+        else:
+            self._consecutive_spikes = 0
+
+        is_spike = self._consecutive_spikes >= self.debounce_samples
 
         if is_spike:
             self.spike_count += 1
@@ -238,5 +245,6 @@ class SpikeDetector:
     def reset(self) -> None:
         """Reset detector state."""
         self.variance_calc.reset()
+        self._consecutive_spikes = 0
         self.spike_count = 0
         self.total_samples = 0
