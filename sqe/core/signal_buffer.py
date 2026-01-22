@@ -6,7 +6,7 @@ for sliding-window operations.
 """
 
 from collections import deque
-from typing import List, Optional
+from typing import Optional
 import numpy as np
 
 
@@ -30,6 +30,7 @@ class SignalBuffer:
 
         self.capacity = capacity
         self.buffer = deque(maxlen=capacity)
+        self.missing_flags = deque(maxlen=capacity)
         self.missing_count = 0  # Track missing samples for SQI
 
     def push(self, value: Optional[float]) -> None:
@@ -39,12 +40,20 @@ class SignalBuffer:
         Args:
             value: Sample value, or None if missing
         """
+        if len(self.buffer) == self.capacity:
+            evicted_missing = self.missing_flags.popleft()
+            self.buffer.popleft()
+            if evicted_missing:
+                self.missing_count -= 1
+
         if value is None:
+            self.buffer.append(None)
+            self.missing_flags.append(True)
             self.missing_count += 1
-            # Don't add None values, just track them
             return
 
         self.buffer.append(value)
+        self.missing_flags.append(False)
 
     def get_samples(self, n: Optional[int] = None) -> np.ndarray:
         """
@@ -57,11 +66,11 @@ class SignalBuffer:
             Numpy array of samples
         """
         if n is None:
-            return np.array(list(self.buffer))
+            return np.array([sample for sample in self.buffer if sample is not None])
 
         # Get last n samples
         samples = list(self.buffer)[-n:]
-        return np.array(samples)
+        return np.array([sample for sample in samples if sample is not None])
 
     def get_latest(self) -> Optional[float]:
         """
@@ -96,6 +105,7 @@ class SignalBuffer:
     def clear(self) -> None:
         """Clear all samples from buffer."""
         self.buffer.clear()
+        self.missing_flags.clear()
         self.missing_count = 0
 
     def get_missing_ratio(self) -> float:
@@ -105,11 +115,11 @@ class SignalBuffer:
         Returns:
             Ratio between 0 and 1
         """
-        total = len(self.buffer) + self.missing_count
+        total = len(self.buffer)
         if total == 0:
             return 0.0
         return self.missing_count / total
 
     def reset_missing_count(self) -> None:
-        """Reset the missing sample counter."""
-        self.missing_count = 0
+        """Recalculate the missing sample counter for the current window."""
+        self.missing_count = sum(self.missing_flags)
