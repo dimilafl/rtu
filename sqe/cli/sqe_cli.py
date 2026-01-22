@@ -11,15 +11,33 @@ Usage:
 import argparse
 import sys
 import csv
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from statistics import median
+from typing import Dict, Iterable, List, Optional, Tuple
 
-from sqe.core.engine import SignalQualityEngine, SignalConfig
+from sqe.core.engine import SignalQualityEngine
 from sqe.config.loader import load_config
 from sqe import __version__
 
 
-def load_signal_from_csv(filepath: str) -> Tuple[List[str], List[float]]:
+@dataclass(frozen=True)
+class SignalRow:
+    timestamp: Optional[float]
+    signal_id: str
+    value: Optional[float]
+
+
+def _parse_optional_float(value: Optional[str]) -> Optional[float]:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    return float(stripped)
+
+
+def load_signal_from_csv(filepath: str) -> List[SignalRow]:
     """
     Load signal data from CSV file.
 
@@ -33,18 +51,56 @@ def load_signal_from_csv(filepath: str) -> Tuple[List[str], List[float]]:
         filepath: Path to CSV file
 
     Returns:
-        Tuple of (signal_ids, values)
+        List of SignalRow entries. Empty timestamp/value entries are returned as None.
     """
-    signal_ids = []
-    values = []
+    rows: List[SignalRow] = []
 
     with open(filepath, 'r') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            signal_ids.append(row['signal_id'])
-            values.append(float(row['value']))
+            rows.append(
+                SignalRow(
+                    timestamp=_parse_optional_float(row.get('timestamp')),
+                    signal_id=row['signal_id'],
+                    value=_parse_optional_float(row.get('value'))
+                )
+            )
 
-    return signal_ids, values
+    return rows
+
+
+def build_scans(rows: Iterable[SignalRow]) -> Tuple[List[str], List[Tuple[Optional[float], Dict[str, Optional[float]]]]]:
+    signal_ids: List[str] = []
+    seen_signals = set()
+    grouped: Dict[Optional[float], Dict[str, Optional[float]]] = {}
+
+    for row in rows:
+        if row.signal_id not in seen_signals:
+            seen_signals.add(row.signal_id)
+            signal_ids.append(row.signal_id)
+        grouped.setdefault(row.timestamp, {})[row.signal_id] = row.value
+
+    scans = [
+        (timestamp, {signal_id: grouped[timestamp].get(signal_id) for signal_id in signal_ids})
+        for timestamp in grouped
+    ]
+    return signal_ids, scans
+
+
+def derive_scan_interval(timestamps: Iterable[Optional[float]], default_interval: float = 0.1) -> float:
+    deltas = []
+    last_timestamp: Optional[float] = None
+
+    for timestamp in timestamps:
+        if timestamp is None:
+            continue
+        if last_timestamp is not None:
+            delta = timestamp - last_timestamp
+            if delta > 0:
+                deltas.append(delta)
+        last_timestamp = timestamp
+
+    return median(deltas) if deltas else default_interval
 
 
 def analyze_command(args):
@@ -58,24 +114,30 @@ def analyze_command(args):
 
     # Load signal data
     try:
-        signal_ids, values = load_signal_from_csv(args.signal_file)
+        rows = load_signal_from_csv(args.signal_file)
     except Exception as e:
         print(f"Error loading file: {e}")
         return 1
 
-    print(f"Loaded {len(values)} samples")
+    signal_ids, scans = build_scans(rows)
+    scan_interval = derive_scan_interval((timestamp for timestamp, _ in scans))
+
+    print(f"Loaded {len(rows)} samples")
     unique_signals = set(signal_ids)
     print(f"Signals: {', '.join(unique_signals)}")
     print()
 
     # Initialize engine
     config = load_config(args.config)
-    engine = SignalQualityEngine(config=config)
+    if args.config:
+        engine = SignalQualityEngine(config=config)
+    else:
+        engine = SignalQualityEngine(config=config, scan_interval=scan_interval)
 
     # Process signals
     print("Processing signals...")
-    for sig_id, value in zip(signal_ids, values):
-        engine.update_single(sig_id, value)
+    for _, scan_values in scans:
+        engine.update(scan_values)
 
     # Print statistics
     print()
@@ -103,7 +165,7 @@ def analyze_command(args):
         try:
             import matplotlib.pyplot as plt
             print("Generating plots...")
-            plot_results(engine, signal_ids, values)
+            plot_results(engine, signal_ids, rows)
             print("Plot displayed.")
         except ImportError:
             print("Warning: matplotlib not available. Install with: pip install matplotlib")
@@ -184,16 +246,17 @@ def version_command(args):
     return 0
 
 
-def plot_results(engine, signal_ids, values):
+def plot_results(engine, signal_ids, rows):
     """Plot analysis results."""
     import matplotlib.pyplot as plt
 
     # Group values by signal
     signals_data = {}
-    for sig_id, value in zip(signal_ids, values):
-        if sig_id not in signals_data:
-            signals_data[sig_id] = []
-        signals_data[sig_id].append(value)
+    for row in rows:
+        if row.signal_id not in signals_data:
+            signals_data[row.signal_id] = []
+        if row.value is not None:
+            signals_data[row.signal_id].append(row.value)
 
     # Create plots
     fig, axes = plt.subplots(len(signals_data), 1, figsize=(12, 4*len(signals_data)))
@@ -267,7 +330,11 @@ def main():
     analyze_parser.add_argument(
         '--signal-file',
         required=True,
-        help='Path to CSV file containing signal data'
+        help=(
+            'Path to CSV file containing signal data. '
+            'Required columns: timestamp, signal_id, value. '
+            'Empty timestamp/value entries are treated as missing (None).'
+        )
     )
     analyze_parser.add_argument(
         '--plot',
