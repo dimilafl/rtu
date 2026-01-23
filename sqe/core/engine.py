@@ -292,6 +292,7 @@ class SignalProcessor:
         *,
         quality: SampleQuality = SampleQuality.GOOD,
         source_timestamp: Optional[float] = None,
+        baseline_stats_cache: Optional[Dict[str, Dict[str, float]]] = None,
     ) -> Optional[ProcessedSignal]:
         """
         Process new sample through complete pipeline.
@@ -336,7 +337,11 @@ class SignalProcessor:
 
         # Variance and spike detection
         variance_result = self.variance_calc.update(x)
-        spike_result = self.spike_detector.update(x)
+        spike_result = self.spike_detector.update(
+            x,
+            signal_id=self.config.signal_id,
+            baseline_stats_cache=baseline_stats_cache,
+        )
 
         # Frequency detection
         freq_result = self.osc_detector.update(x)
@@ -548,6 +553,9 @@ class SignalQualityEngine:
         self.last_scan_time = current_time
 
         results = {}
+        # Cache baseline stats per signal for this scan. The cache is invalidated
+        # after each scan because variance buffers update with new samples.
+        baseline_stats_cache: Dict[str, Dict[str, float]] = {}
 
         signal_ids = set(signals.keys())
         if self.treat_missing_signals_as_none:
@@ -563,7 +571,11 @@ class SignalQualityEngine:
             value = signals.get(signal_id)
             processor = self.processors[signal_id]
             prev_quality = processor.last_quality_class
-            processed = processor.update(value, timestamp=timestamp)
+            processed = processor.update(
+                value,
+                timestamp=timestamp,
+                baseline_stats_cache=baseline_stats_cache,
+            )
             if processed is not None:
                 if (
                     self.log_quality_changes
@@ -609,6 +621,9 @@ class SignalQualityEngine:
         self.last_scan_time = current_time
 
         results: Dict[str, ProcessedSignal] = {}
+        # Cache baseline stats per signal for this scan. The cache is invalidated
+        # after each scan because variance buffers update with new samples.
+        baseline_stats_cache: Dict[str, Dict[str, float]] = {}
 
         signal_ids = set(samples.keys())
         if self.treat_missing_signals_as_none:
@@ -631,6 +646,7 @@ class SignalQualityEngine:
                 timestamp=timestamp,
                 quality=sample.quality,
                 source_timestamp=sample.source_timestamp,
+                baseline_stats_cache=baseline_stats_cache,
             )
             if processed is not None:
                 if (
