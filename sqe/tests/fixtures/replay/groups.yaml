@@ -1,0 +1,13 @@
+grouping:
+  mode: prefix
+  prefix_delimiter: _
+  prefix_depth: 2
+  min_members_for_group_incident: 2
+  min_fraction_for_group_incident: 1.0
+group_incidents:
+  min_members_for_start: 2
+  min_fraction_for_start: 1.0
+  start_persistence_scans: 1
+  end_persistence_scans: 1
+  critical_fraction_threshold: 0.8
+  emit_updates: true

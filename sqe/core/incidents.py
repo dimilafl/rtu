@@ -115,15 +115,17 @@ class IncidentEngine:
     ) -> List[IncidentEvent]:
         events: List[IncidentEvent] = []
 
-        for signal_id, missing_ratio in missing_ratio_by_signal.items():
+        evaluations = self.evaluate_signal_statuses(
+            processed_signals=processed_signals,
+            missing_ratio_by_signal=missing_ratio_by_signal,
+            include_details=True,
+        )
+
+        for signal_id, evaluation in evaluations.items():
             processed = processed_signals.get(signal_id)
             state = self._state_by_signal.setdefault(signal_id, _SignalIncidentState())
             state.last_seen_scan_index = scan_index
 
-            evaluation = self._evaluate_signal(
-                processed=processed,
-                missing_ratio=missing_ratio,
-            )
             degraded = evaluation["degraded"]
             recovered = evaluation["recovered"]
             cause = evaluation["cause"]
@@ -230,6 +232,27 @@ class IncidentEngine:
                 state.recovered_streak = 0
 
         return events
+
+    def evaluate_signal_statuses(
+        self,
+        processed_signals: Dict[str, ProcessedSignal],
+        missing_ratio_by_signal: Dict[str, float],
+        include_details: bool = False,
+    ) -> Dict[str, Dict[str, Any]]:
+        evaluations: Dict[str, Dict[str, Any]] = {}
+        for signal_id, missing_ratio in missing_ratio_by_signal.items():
+            processed = processed_signals.get(signal_id)
+            evaluation = self._evaluate_signal(
+                processed=processed,
+                missing_ratio=missing_ratio,
+            )
+            if not include_details:
+                evaluation = {
+                    key: evaluation[key]
+                    for key in ("degraded", "recovered", "cause", "severity", "sqi")
+                }
+            evaluations[signal_id] = evaluation
+        return evaluations
 
     def _evaluate_signal(
         self,

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Iterable, List, Protocol, Union
+from typing import Any, Dict, Iterable, List, Protocol, Union
 
 from sqe.core.engine import ProcessedSignal
 from sqe.core.incidents import IncidentEvent, IncidentSeverity
+from sqe.core.group_incidents import GroupIncidentEvent
 
 
 class QualityPublisher(Protocol):
@@ -23,6 +24,9 @@ class QualityPublisher(Protocol):
     def publish_incidents(self, events: List[IncidentEvent]) -> None:
         """Publish incident events."""
 
+    def publish_group_incidents(self, events: List[GroupIncidentEvent]) -> None:
+        """Publish group incident events."""
+
 
 class JsonLinesPublisher:
     """
@@ -37,6 +41,7 @@ class JsonLinesPublisher:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.scans_path = self.output_dir / "scans.jsonl"
         self.incidents_path = self.output_dir / "incidents.jsonl"
+        self.group_incidents_path = self.output_dir / "group_incidents.jsonl"
 
     def publish_processed(
         self,
@@ -52,6 +57,10 @@ class JsonLinesPublisher:
     def publish_incidents(self, events: List[IncidentEvent]) -> None:
         rows = [self._build_incident_row(event) for event in events]
         self._append_rows(self.incidents_path, rows)
+
+    def publish_group_incidents(self, events: List[GroupIncidentEvent]) -> None:
+        rows = [self._build_group_incident_row(event) for event in events]
+        self._append_rows(self.group_incidents_path, rows)
 
     def _append_rows(self, path: Path, rows: Iterable[Dict]) -> None:
         if not rows:
@@ -121,6 +130,25 @@ class JsonLinesPublisher:
             },
         }
 
+    @staticmethod
+    def _build_group_incident_row(event: GroupIncidentEvent) -> Dict[str, Any]:
+        incident = event.incident
+        details = incident.details or {}
+        return {
+            "group_id": incident.group_id,
+            "group_incident_id": incident.group_incident_id,
+            "timestamp": incident.last_timestamp,
+            "event_type": event.event_type.value,
+            "severity": incident.severity.value,
+            "cause": incident.cause.value,
+            "degraded_fraction": details.get("degraded_fraction", 0.0),
+            "degraded_members": list(incident.degraded_members),
+            "counts": {
+                "members_total": details.get("members_total", 0),
+                "members_degraded": details.get("members_degraded", 0),
+            },
+        }
+
 
 class OasysEnterprisePublisher:
     """
@@ -148,4 +176,9 @@ class OasysEnterprisePublisher:
     def publish_incidents(self, events: List[IncidentEvent]) -> None:
         raise NotImplementedError(
             "Map incident events to OASyS Enterprise event stream here."
+        )
+
+    def publish_group_incidents(self, events: List[GroupIncidentEvent]) -> None:
+        raise NotImplementedError(
+            "Map group incident events to OASyS Enterprise event stream here."
         )
