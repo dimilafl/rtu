@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import math
 import statistics
 import time
@@ -37,7 +38,9 @@ def run_bench(
     missing_rate: float,
     config_path: Optional[str],
     fast: bool,
+    progress_interval: int,
 ) -> None:
+    logger = logging.getLogger(__name__)
     rng = random.Random(42)
     config = load_config(config_path)
     if fast:
@@ -64,6 +67,7 @@ def run_bench(
     base_values = {signal_id: rng.uniform(-5.0, 5.0) for signal_id in signal_ids}
     scan_durations: List[float] = []
     total_events = 0
+    bench_start = time.perf_counter()
 
     for scan_index in range(scans):
         timestamp = scan_index * scan_interval
@@ -81,6 +85,14 @@ def run_bench(
         end = time.perf_counter()
         scan_durations.append(end - start)
         total_events += len(events)
+        if progress_interval > 0 and (scan_index + 1) % progress_interval == 0:
+            elapsed = time.perf_counter() - bench_start
+            logger.info(
+                "Processed %d/%d scans (elapsed %.2fs)",
+                scan_index + 1,
+                scans,
+                elapsed,
+            )
 
     total_time = sum(scan_durations)
     mean_scan_time = statistics.mean(scan_durations) if scan_durations else 0.0
@@ -110,6 +122,12 @@ def main() -> None:
     parser.add_argument("--scans", type=int, default=1000)
     parser.add_argument("--scan-interval", type=float, default=0.1)
     parser.add_argument("--missing-rate", type=float, default=0.01)
+    parser.add_argument(
+        "--progress-interval",
+        type=int,
+        default=100,
+        help="Log progress every N scans (0 to disable)",
+    )
     mode_group = parser.add_mutually_exclusive_group()
     mode_group.add_argument("--config", type=str, help="Path to config YAML")
     mode_group.add_argument(
@@ -124,6 +142,8 @@ def main() -> None:
     if args.missing_rate < 0.0 or args.missing_rate > 1.0:
         raise SystemExit("Missing rate must be between 0 and 1")
 
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     run_bench(
         signals=args.signals,
         scans=args.scans,
@@ -131,6 +151,7 @@ def main() -> None:
         missing_rate=args.missing_rate,
         config_path=args.config,
         fast=args.fast,
+        progress_interval=args.progress_interval,
     )
 
 
