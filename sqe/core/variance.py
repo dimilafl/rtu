@@ -105,7 +105,11 @@ class VarianceCalculator:
             "sample_count": len(samples)
         }
 
-    def get_spike_threshold(self, k: float = 3.0) -> Optional[float]:
+    def get_spike_threshold(
+        self,
+        k: float = 3.0,
+        stats: Optional[dict] = None,
+    ) -> Optional[float]:
         """
         Calculate spike detection threshold.
 
@@ -117,16 +121,20 @@ class VarianceCalculator:
         Returns:
             Threshold value or None if insufficient data
         """
-        samples = self.buffer.get_samples()
-
-        stats = self.get_stats()
+        if stats is None:
+            stats = self.get_stats()
 
         if stats["sample_count"] < 2:
             return None
 
         return stats["mean"] + k * stats["std_dev"]
 
-    def is_spike(self, x: float, k: float = 3.0) -> bool:
+    def is_spike(
+        self,
+        x: float,
+        k: float = 3.0,
+        stats: Optional[dict] = None,
+    ) -> bool:
         """
         Check if value is a spike.
 
@@ -137,7 +145,8 @@ class VarianceCalculator:
         Returns:
             True if value exceeds threshold
         """
-        stats = self.get_stats()
+        if stats is None:
+            stats = self.get_stats()
 
         if stats["sample_count"] < 2:
             return False
@@ -236,7 +245,13 @@ class SpikeDetector:
         self.spike_count = 0
         self.total_samples = 0
 
-    def update(self, x: float) -> dict:
+    def update(
+        self,
+        x: float,
+        *,
+        signal_id: Optional[str] = None,
+        baseline_stats_cache: Optional[dict] = None,
+    ) -> dict:
         """
         Check for spike in new sample.
 
@@ -249,11 +264,28 @@ class SpikeDetector:
         self.total_samples += 1
 
         # Baseline statistics before updating with current sample
-        baseline_stats = self.variance_calc.get_stats()
-        baseline_threshold = self.variance_calc.get_spike_threshold(self.k_sigma)
+        baseline_stats = None
+        if baseline_stats_cache is not None and signal_id is not None:
+            baseline_stats = baseline_stats_cache.get(signal_id)
+
+        if baseline_stats is None:
+            baseline_stats = self.variance_calc.get_stats()
+            if baseline_stats_cache is not None and signal_id is not None:
+                baseline_stats_cache[signal_id] = baseline_stats
+
+        # Cache invalidation assumption: the cached baseline stats are only valid
+        # until variance_calc.update is called for this signal (i.e., within one scan).
+        baseline_threshold = self.variance_calc.get_spike_threshold(
+            self.k_sigma,
+            stats=baseline_stats,
+        )
 
         # Check for spike
-        is_spike_candidate = self.variance_calc.is_spike(x, self.k_sigma)
+        is_spike_candidate = self.variance_calc.is_spike(
+            x,
+            self.k_sigma,
+            stats=baseline_stats,
+        )
         if is_spike_candidate:
             self._consecutive_spikes += 1
         else:
