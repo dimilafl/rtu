@@ -7,9 +7,11 @@ Designed for deterministic, real-time operation within PLC scan cycles.
 
 from typing import Dict, Optional, List
 from dataclasses import dataclass, asdict
+from collections import deque
 import logging
 import time
 
+from sqe.core.sample import Sample, SampleQuality
 from sqe.core.filters import EWMAFilter, HighPassFilter, MovingAverageFilter
 from sqe.core.drift import DriftDetector, DriftEvent
 from sqe.core.variance import VarianceCalculator, SpikeDetector
@@ -255,6 +257,7 @@ class SignalProcessor:
         # Track missing samples
         self.missing_count = 0
         self.missing_buffer = SignalBuffer(config.missing_window)
+        self.quality_penalties = deque(maxlen=config.missing_window)
         self.last_quality_class: Optional[str] = None
 
         # Initialize stale detector
@@ -284,6 +287,9 @@ class SignalProcessor:
         self,
         x: Optional[float],
         timestamp: Optional[float] = None,
+        *,
+        quality: SampleQuality = SampleQuality.GOOD,
+        source_timestamp: Optional[float] = None,
     ) -> Optional[ProcessedSignal]:
         """
         Process new sample through complete pipeline.
@@ -296,6 +302,15 @@ class SignalProcessor:
             ProcessedSignal with all analysis results, or None if sample is missing
         """
         self.sample_count += 1
+        if quality == SampleQuality.BAD:
+            x = None
+
+        penalty = 0.0
+        if x is None or quality == SampleQuality.BAD:
+            penalty = 1.0
+        elif quality == SampleQuality.UNCERTAIN:
+            penalty = 0.5
+        self.quality_penalties.append(penalty)
         self.missing_buffer.push(x)
 
         # Handle missing sample
@@ -305,6 +320,9 @@ class SignalProcessor:
 
         if timestamp is None:
             timestamp = time.time()
+        effective_timestamp = (
+            source_timestamp if source_timestamp is not None else timestamp
+        )
 
         # Apply filters
         filtered_ewma = self.ewma_filter.update(x)
@@ -322,16 +340,18 @@ class SignalProcessor:
         freq_result = self.osc_detector.update(x)
 
         # Stale detection
-        stale_result = self.stale_detector.update(x, timestamp)
+        stale_result = self.stale_detector.update(x, effective_timestamp)
 
         # Step-change detection
         step_result = self.step_detector.update(x)
 
         # Plausibility checks
-        plausibility_result = self.plausibility_checker.update(x, timestamp)
+        plausibility_result = self.plausibility_checker.update(
+            x, effective_timestamp
+        )
 
         # Calculate SQI
-        missing_ratio = self.missing_buffer.get_missing_ratio()
+        missing_ratio = self.get_effective_missing_ratio()
         stale_score = 0.0 if stale_result.is_stale else 100.0
         step_score = 0.0 if step_result.is_step else 100.0
         plausibility_score = 0.0 if plausibility_result.is_violation else 100.0
@@ -397,6 +417,7 @@ class SignalProcessor:
         self.sample_count = 0
         self.missing_count = 0
         self.missing_buffer.clear()
+        self.quality_penalties.clear()
         self.last_quality_class = None
         self.ewma_filter.reset()
         self.ma_filter.reset()
@@ -409,6 +430,12 @@ class SignalProcessor:
         self.stale_detector.reset()
         self.step_detector.reset()
         self.plausibility_checker.reset()
+
+    def get_effective_missing_ratio(self) -> float:
+        """Return the mean quality penalty for the missing window."""
+        if not self.quality_penalties:
+            return 0.0
+        return sum(self.quality_penalties) / len(self.quality_penalties)
 
 
 class SignalQualityEngine:
@@ -563,6 +590,74 @@ class SignalQualityEngine:
 
         return results
 
+    def update_samples(
+        self,
+        samples: Dict[str, Sample],
+        timestamp: Optional[float] = None,
+    ) -> Dict[str, ProcessedSignal]:
+        """Process one scan cycle for all signals with sample metadata."""
+        self.scan_count += 1
+        current_time = time.time()
+
+        if self.last_scan_time is not None:
+            actual_interval = current_time - self.last_scan_time
+            if self.log_scan_timing:
+                self.logger.debug("Scan interval %.4fs", actual_interval)
+
+        self.last_scan_time = current_time
+
+        results: Dict[str, ProcessedSignal] = {}
+
+        signal_ids = set(samples.keys())
+        if self.treat_missing_signals_as_none:
+            signal_ids |= set(self.processors.keys())
+
+        for signal_id in signal_ids:
+            if signal_id not in self.processors:
+                if not self.auto_register:
+                    raise ValueError(f"Signal {signal_id} not registered")
+                self.register_signal(signal_id)
+
+            sample = samples.get(signal_id)
+            if sample is None:
+                sample = Sample(value=None)
+
+            processor = self.processors[signal_id]
+            prev_quality = processor.last_quality_class
+            processed = processor.update(
+                sample.value,
+                timestamp=timestamp,
+                quality=sample.quality,
+                source_timestamp=sample.source_timestamp,
+            )
+            if processed is not None:
+                if (
+                    self.log_quality_changes
+                    and prev_quality is not None
+                    and prev_quality != processed.quality_class
+                ):
+                    self.logger.info(
+                        "Signal %s quality changed %s -> %s",
+                        signal_id,
+                        prev_quality,
+                        processed.quality_class,
+                    )
+                if self.log_anomalies and (
+                    processed.drift_type != "none"
+                    or processed.is_spike
+                    or processed.alert_level != "none"
+                ):
+                    self.logger.warning(
+                        "Signal %s anomaly drift=%s spike=%s alert=%s",
+                        signal_id,
+                        processed.drift_type,
+                        processed.is_spike,
+                        processed.alert_level,
+                    )
+                results[signal_id] = processed
+
+        return results
+
     def update_single(
         self,
         signal_id: str,
@@ -603,6 +698,7 @@ class SignalQualityEngine:
             "sample_count": processor.sample_count,
             "missing_count": processor.missing_count,
             "missing_ratio": processor.missing_buffer.get_missing_ratio(),
+            "effective_missing_ratio": processor.get_effective_missing_ratio(),
             "sqi_stats": processor.sqi_calc.get_statistics()
         }
 

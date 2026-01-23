@@ -124,12 +124,14 @@ class IncidentEngine:
         timestamp: float,
         processed_signals: Dict[str, ProcessedSignal],
         missing_ratio_by_signal: Dict[str, float],
+        raw_missing_ratio_by_signal: Optional[Dict[str, float]] = None,
     ) -> List[IncidentEvent]:
         events: List[IncidentEvent] = []
 
         evaluations = self.evaluate_signal_statuses(
             processed_signals=processed_signals,
             missing_ratio_by_signal=missing_ratio_by_signal,
+            raw_missing_ratio_by_signal=raw_missing_ratio_by_signal,
             include_details=True,
         )
 
@@ -249,14 +251,21 @@ class IncidentEngine:
         self,
         processed_signals: Dict[str, ProcessedSignal],
         missing_ratio_by_signal: Dict[str, float],
+        raw_missing_ratio_by_signal: Optional[Dict[str, float]] = None,
         include_details: bool = False,
     ) -> Dict[str, Dict[str, Any]]:
         evaluations: Dict[str, Dict[str, Any]] = {}
         for signal_id, missing_ratio in missing_ratio_by_signal.items():
+            raw_missing_ratio = (
+                raw_missing_ratio_by_signal.get(signal_id, missing_ratio)
+                if raw_missing_ratio_by_signal is not None
+                else missing_ratio
+            )
             processed = processed_signals.get(signal_id)
             evaluation = self._evaluate_signal(
                 processed=processed,
                 missing_ratio=missing_ratio,
+                raw_missing_ratio=raw_missing_ratio,
             )
             if not include_details:
                 evaluation = {
@@ -270,6 +279,7 @@ class IncidentEngine:
         self,
         processed: Optional[ProcessedSignal],
         missing_ratio: float,
+        raw_missing_ratio: float,
     ) -> Dict[str, Any]:
         missing_score = self._missing_score(missing_ratio)
         if processed is None:
@@ -290,6 +300,7 @@ class IncidentEngine:
                 "details": self._build_details(
                     processed=processed,
                     missing_ratio=missing_ratio,
+                    raw_missing_ratio=raw_missing_ratio,
                     missing_score=missing_score,
                 ),
             }
@@ -315,6 +326,7 @@ class IncidentEngine:
             "details": self._build_details(
                 processed=processed,
                 missing_ratio=missing_ratio,
+                raw_missing_ratio=raw_missing_ratio,
                 missing_score=missing_score,
             ),
         }
@@ -369,16 +381,19 @@ class IncidentEngine:
         self,
         processed: Optional[ProcessedSignal],
         missing_ratio: float,
+        raw_missing_ratio: float,
         missing_score: float,
     ) -> Dict[str, Any]:
         if processed is None:
             return {
                 "components": {"missing": missing_score},
-                "missing_ratio": missing_ratio,
+                "missing_ratio": raw_missing_ratio,
+                "effective_missing_ratio": missing_ratio,
             }
         return {
             "components": dict(processed.sqi_components),
-            "missing_ratio": missing_ratio,
+            "missing_ratio": raw_missing_ratio,
+            "effective_missing_ratio": missing_ratio,
             "alert_level": processed.alert_level,
             "drift_alert": processed.drift_alert,
             "spike_alert": processed.spike_alert,

@@ -22,6 +22,7 @@ from sqe.core.engine import ProcessedSignal, SignalQualityEngine
 from sqe.core.group_incidents import GroupIncidentEngine, GroupIncidentEvent
 from sqe.core.grouping import GroupResolver
 from sqe.core.incidents import IncidentEngine, IncidentEvent
+from sqe.core.sample import Sample, parse_sample
 from sqe.replay.schema import validate_scan_record
 from sqe.ops.service import RealtimeQualityService
 
@@ -94,10 +95,10 @@ def run_replay(
     group_incidents_handle = group_incidents_path.open("a", encoding="utf-8")
 
     try:
-        for scan_index, timestamp, signals in _iter_scans(input_jsonl_path):
+        for scan_index, timestamp, samples in _iter_scans(input_jsonl_path):
             service.scan_index = scan_index
-            processed, incident_events, group_events = service.process_scan(
-                signals, timestamp=timestamp
+            processed, incident_events, group_events = (
+                service.process_scan_samples(samples, timestamp=timestamp)
             )
 
             if processed_handle:
@@ -144,7 +145,7 @@ def _scan_signal_ids(input_jsonl_path: str) -> List[str]:
 
 def _iter_scans(
     input_jsonl_path: str,
-) -> Iterable[Tuple[int, float, Dict[str, Optional[float]]]]:
+) -> Iterable[Tuple[int, float, Dict[str, Sample]]]:
     with Path(input_jsonl_path).open("r", encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
             if not line.strip():
@@ -158,16 +159,14 @@ def _iter_scans(
                 raise ValueError(
                     f"signals must be a mapping on line {line_number}"
                 )
-            converted: Dict[str, Optional[float]] = {}
+            converted: Dict[str, Sample] = {}
             for signal_id, value in signals.items():
-                if value is None:
-                    converted[signal_id] = None
-                elif isinstance(value, (int, float)):
-                    converted[signal_id] = float(value)
-                else:
+                try:
+                    converted[signal_id] = parse_sample(value)
+                except ValueError as exc:
                     raise ValueError(
-                        f"Invalid value for {signal_id} on line {line_number}"
-                    )
+                        f"Invalid value for {signal_id} on line {line_number}: {exc}"
+                    ) from exc
             yield scan_index, timestamp, converted
 
 
