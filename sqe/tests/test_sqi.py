@@ -14,6 +14,7 @@ class TestSQIWeights:
         weights = SQIWeights()
         assert weights.noise == 0.25
         assert weights.drift == 0.25
+        assert weights.stale == 0.0
 
     def test_normalize(self):
         """Test weight normalization."""
@@ -22,14 +23,24 @@ class TestSQIWeights:
             drift=1.0,
             spikes=1.0,
             oscillation=1.0,
-            missing=1.0
+            missing=1.0,
+            stale=1.0,
+            step=1.0,
+            plausibility=1.0,
         )
         normalized = weights.normalize()
 
         # Sum should be 1.0
-        total = (normalized.noise + normalized.drift +
-                normalized.spikes + normalized.oscillation +
-                normalized.missing)
+        total = (
+            normalized.noise
+            + normalized.drift
+            + normalized.spikes
+            + normalized.oscillation
+            + normalized.missing
+            + normalized.stale
+            + normalized.step
+            + normalized.plausibility
+        )
         assert abs(total - 1.0) < 0.01
 
     def test_normalize_zero_total_raises(self):
@@ -39,7 +50,10 @@ class TestSQIWeights:
             drift=0.0,
             spikes=0.0,
             oscillation=0.0,
-            missing=0.0
+            missing=0.0,
+            stale=0.0,
+            step=0.0,
+            plausibility=0.0,
         )
 
         with pytest.raises(ValueError, match="weights must sum to a positive value"):
@@ -53,6 +67,9 @@ class TestSQIWeights:
             ({"spikes": -0.3}, "spikes"),
             ({"oscillation": -0.4}, "oscillation"),
             ({"missing": -0.5}, "missing"),
+            ({"stale": -0.1}, "stale"),
+            ({"step": -0.1}, "step"),
+            ({"plausibility": -0.1}, "plausibility"),
         ],
     )
     def test_negative_weight_raises(self, kwargs, expected_field):
@@ -77,6 +94,9 @@ class TestSQIWeights:
             spikes=1.0,
             oscillation=0.5,
             missing=0.5,
+            stale=0.5,
+            step=0.25,
+            plausibility=0.25,
         )
         normalized = weights.normalize()
 
@@ -86,6 +106,9 @@ class TestSQIWeights:
             + normalized.spikes
             + normalized.oscillation
             + normalized.missing
+            + normalized.stale
+            + normalized.step
+            + normalized.plausibility
         )
         assert abs(total - 1.0) < 0.01
 
@@ -167,6 +190,8 @@ class TestSignalQualityIndex:
         assert "noise" in result["components"]
         assert "drift" in result["components"]
         assert "spikes" in result["components"]
+        assert "stale" in result["components"]
+        assert "plausibility" in result["components"]
 
     def test_quality_classification(self):
         """Test quality classification thresholds."""

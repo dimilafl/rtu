@@ -24,6 +24,9 @@ class SQIWeights:
     spikes: float = 0.20       # Weight for spike frequency
     oscillation: float = 0.15  # Weight for oscillation energy
     missing: float = 0.15      # Weight for missing samples
+    stale: float = 0.0         # Weight for stale samples
+    step: float = 0.0          # Weight for step changes
+    plausibility: float = 0.0  # Weight for plausibility violations
 
     def normalize(self) -> 'SQIWeights':
         """Normalize weights to sum to 1.0."""
@@ -35,6 +38,9 @@ class SQIWeights:
                 "spikes": self.spikes,
                 "oscillation": self.oscillation,
                 "missing": self.missing,
+                "stale": self.stale,
+                "step": self.step,
+                "plausibility": self.plausibility,
             }.items()
             if value < 0
         ]
@@ -44,7 +50,16 @@ class SQIWeights:
                 "SQI weights must be >= 0 for: "
                 f"{joined_fields}"
             )
-        total = self.noise + self.drift + self.spikes + self.oscillation + self.missing
+        total = (
+            self.noise
+            + self.drift
+            + self.spikes
+            + self.oscillation
+            + self.missing
+            + self.stale
+            + self.step
+            + self.plausibility
+        )
         if total == 0:
             raise ValueError("SQI weights must sum to a positive value.")
         return SQIWeights(
@@ -52,7 +67,10 @@ class SQIWeights:
             drift=self.drift / total,
             spikes=self.spikes / total,
             oscillation=self.oscillation / total,
-            missing=self.missing / total
+            missing=self.missing / total,
+            stale=self.stale / total,
+            step=self.step / total,
+            plausibility=self.plausibility / total,
         )
 
 
@@ -64,6 +82,9 @@ class SQIComponents:
     spike_score: float          # 0-100
     oscillation_score: float    # 0-100
     missing_score: float        # 0-100
+    stale_score: float          # 0-100
+    step_score: float           # 0-100
+    plausibility_score: float   # 0-100
 
 
 class SignalQualityIndex:
@@ -125,7 +146,10 @@ class SignalQualityIndex:
         drift_rate: float,
         spike_frequency: float,
         oscillation_energy: float,
-        missing_ratio: float
+        missing_ratio: float,
+        stale_score: float = 100.0,
+        step_score: float = 100.0,
+        plausibility_score: float = 100.0,
     ) -> Dict:
         """
         Calculate signal quality index.
@@ -136,6 +160,9 @@ class SignalQualityIndex:
             spike_frequency: Ratio of spikes to total samples
             oscillation_energy: Total oscillation energy
             missing_ratio: Ratio of missing samples
+            stale_score: Stale component score (0-100)
+            step_score: Step-change component score (0-100)
+            plausibility_score: Plausibility component score (0-100)
 
         Returns:
             Dictionary with SQI score and component breakdown
@@ -146,7 +173,10 @@ class SignalQualityIndex:
             drift_rate,
             spike_frequency,
             oscillation_energy,
-            missing_ratio
+            missing_ratio,
+            stale_score,
+            step_score,
+            plausibility_score,
         )
 
         # Calculate weighted composite SQI
@@ -155,7 +185,10 @@ class SignalQualityIndex:
             components.drift_score * self.weights.drift +
             components.spike_score * self.weights.spikes +
             components.oscillation_score * self.weights.oscillation +
-            components.missing_score * self.weights.missing
+            components.missing_score * self.weights.missing +
+            components.stale_score * self.weights.stale +
+            components.step_score * self.weights.step +
+            components.plausibility_score * self.weights.plausibility
         )
 
         # Ensure in range [0, 100]
@@ -182,14 +215,20 @@ class SignalQualityIndex:
                 "drift": components.drift_score,
                 "spikes": components.spike_score,
                 "oscillation": components.oscillation_score,
-                "missing": components.missing_score
+                "missing": components.missing_score,
+                "stale": components.stale_score,
+                "step": components.step_score,
+                "plausibility": components.plausibility_score,
             },
             "weights": {
                 "noise": self.weights.noise,
                 "drift": self.weights.drift,
                 "spikes": self.weights.spikes,
                 "oscillation": self.weights.oscillation,
-                "missing": self.weights.missing
+                "missing": self.weights.missing,
+                "stale": self.weights.stale,
+                "step": self.weights.step,
+                "plausibility": self.weights.plausibility,
             }
         }
 
@@ -199,7 +238,10 @@ class SignalQualityIndex:
         drift_rate: float,
         spike_frequency: float,
         oscillation_energy: float,
-        missing_ratio: float
+        missing_ratio: float,
+        stale_score: float,
+        step_score: float,
+        plausibility_score: float,
     ) -> SQIComponents:
         """
         Calculate individual component scores.
@@ -220,13 +262,19 @@ class SignalQualityIndex:
 
         # Missing score: linear decrease with missing ratio
         missing_score = 100 * (1 - missing_ratio)
+        stale_score = float(np.clip(stale_score, 0, 100))
+        step_score = float(np.clip(step_score, 0, 100))
+        plausibility_score = float(np.clip(plausibility_score, 0, 100))
 
         return SQIComponents(
             noise_score=float(noise_score),
             drift_score=float(drift_score),
             spike_score=float(spike_score),
             oscillation_score=float(oscillation_score),
-            missing_score=float(missing_score)
+            missing_score=float(missing_score),
+            stale_score=stale_score,
+            step_score=step_score,
+            plausibility_score=plausibility_score,
         )
 
     def _calculate_trend(self) -> str:

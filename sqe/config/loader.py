@@ -147,10 +147,14 @@ def build_signal_config(
     filters = config.get("filters", {})
     drift = config.get("drift", {})
     variance = config.get("variance", {})
+    stale = config.get("stale", {})
+    step_change = config.get("step_change", {})
+    plausibility = config.get("plausibility", {})
     frequency = config.get("frequency", {})
     sqi = config.get("sqi", {})
     sqi_thresholds = sqi.get("thresholds", {})
     alerts = config.get("alerts", {})
+    plausibility_rule = _resolve_plausibility_rule(plausibility, signal_id)
 
     return SignalConfig(
         signal_id=signal_id,
@@ -160,6 +164,21 @@ def build_signal_config(
         large_drift_threshold=drift.get("large_threshold", 5.0),
         variance_window=variance.get("default_window", 20),
         spike_k_sigma=variance.get("spike_k_sigma", 3.0),
+        stale_window=stale.get("window", 5),
+        stale_recovery_window=stale.get("recovery_window", 3),
+        step_baseline_window=step_change.get("baseline_window", 10),
+        step_threshold=step_change.get("threshold", 5.0),
+        step_persistence_scans=step_change.get("persistence_scans", 3),
+        step_recovery_scans=step_change.get("recovery_scans", 5),
+        plausibility_min=plausibility_rule.get("min"),
+        plausibility_max=plausibility_rule.get("max"),
+        plausibility_max_rate=plausibility_rule.get("max_rate"),
+        plausibility_persistence_scans=plausibility_rule.get(
+            "persistence_scans", 1
+        ),
+        plausibility_recovery_scans=plausibility_rule.get(
+            "recovery_scans", 1
+        ),
         reference_frequencies=frequency.get("default_references"),
         sample_interval=sample_interval,
         freq_window=frequency.get("window_size", 50),
@@ -173,6 +192,29 @@ def build_signal_config(
         drift_alert_threshold=alerts.get("drift_alert_threshold", 5.0),
         spike_alert_threshold=alerts.get("spike_alert_threshold", 0.1),
     )
+
+
+def _resolve_plausibility_rule(
+    plausibility: Dict[str, Any],
+    signal_id: str,
+) -> Dict[str, Any]:
+    default_rule = plausibility.get("default", {}) if plausibility else {}
+    by_signal = plausibility.get("by_signal", {}) if plausibility else {}
+    by_prefix = plausibility.get("by_prefix", {}) if plausibility else {}
+
+    rule: Dict[str, Any] = {}
+    rule.update(default_rule)
+    if signal_id in by_signal:
+        rule.update(by_signal[signal_id] or {})
+        return rule
+
+    matched_prefix = ""
+    for prefix, prefix_rule in (by_prefix or {}).items():
+        if signal_id.startswith(prefix) and len(prefix) > len(matched_prefix):
+            matched_prefix = prefix
+            rule.update(prefix_rule or {})
+
+    return rule
 
 
 def get_incident_policy(config: Dict[str, Any]) -> IncidentPolicy:
@@ -235,6 +277,9 @@ def get_incident_policy(config: Dict[str, Any]) -> IncidentPolicy:
     else:
         priority = [
             IncidentCause.MISSING,
+            IncidentCause.STALE,
+            IncidentCause.STEP,
+            IncidentCause.PLAUSIBILITY,
             IncidentCause.DRIFT,
             IncidentCause.SPIKES,
             IncidentCause.NOISE,
