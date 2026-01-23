@@ -23,6 +23,29 @@ variance:
   spike_k_sigma: 3.0        # Spike threshold (std deviations)
   debounce_samples: 2       # Consecutive samples to confirm spike
 
+# Stale detection settings
+stale:
+  window: 5                 # Identical samples to flag flatline
+  recovery_window: 3        # Non-stale samples to clear
+
+# Step-change detection settings
+step_change:
+  baseline_window: 10       # Samples for baseline mean
+  threshold: 5.0            # Absolute change to flag step
+  persistence_scans: 3      # Scans to confirm step
+  recovery_scans: 5         # Scans to accept new baseline
+
+# Plausibility settings
+plausibility:
+  default:
+    min: null               # Engineering min (optional)
+    max: null               # Engineering max (optional)
+    max_rate: null          # Max rate-of-change per second (optional)
+    persistence_scans: 1    # Scans to confirm violation
+    recovery_scans: 1       # Scans to clear violation
+  by_signal: {}             # Per-signal overrides
+  by_prefix: {}             # Per-prefix overrides
+
 # Frequency detection settings
 frequency:
   default_references:       # Default reference frequencies (Hz)
@@ -41,6 +64,9 @@ sqi:
     spikes: 0.20            # Weight for spike component
     oscillation: 0.15       # Weight for oscillation component
     missing: 0.15           # Weight for missing samples component
+    stale: 0.0              # Weight for stale component
+    step: 0.0               # Weight for step-change component
+    plausibility: 0.0       # Weight for plausibility component
 
   thresholds:
     noise: 0.1              # Noise threshold (CV)

@@ -41,6 +41,13 @@ def make_processed(
         sqi_trend="stable",
         sqi_components=components,
         sqi_weights={name: 0.2 for name in components},
+        stale=False,
+        stale_reason=None,
+        step_change=False,
+        step_offset=None,
+        plausibility_violation=False,
+        plausibility_reasons=[],
+        plausibility_rate=None,
         alert_level="warning" if sqi <= 50 else "none",
         drift_alert=False,
         spike_alert=False,
@@ -62,6 +69,9 @@ def build_policy(
         component_score_floor=70,
         cause_priority=[
             IncidentCause.MISSING,
+            IncidentCause.STALE,
+            IncidentCause.STEP,
+            IncidentCause.PLAUSIBILITY,
             IncidentCause.DRIFT,
             IncidentCause.SPIKES,
             IncidentCause.NOISE,
@@ -82,6 +92,9 @@ def test_incident_opens_after_persistence():
         "spikes": 80,
         "oscillation": 80,
         "missing": 80,
+        "stale": 100,
+        "step": 100,
+        "plausibility": 100,
     }
 
     events = engine.update_scan(
@@ -116,6 +129,9 @@ def test_incident_resolves_after_recovery_persistence():
         "spikes": 80,
         "oscillation": 80,
         "missing": 80,
+        "stale": 100,
+        "step": 100,
+        "plausibility": 100,
     }
 
     engine.update_scan(
@@ -158,6 +174,9 @@ def test_cause_selection_uses_lowest_component_score():
         "spikes": 65,
         "oscillation": 90,
         "missing": 90,
+        "stale": 100,
+        "step": 100,
+        "plausibility": 100,
     }
 
     events = engine.update_scan(

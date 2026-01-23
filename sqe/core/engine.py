@@ -15,6 +15,9 @@ from sqe.core.drift import DriftDetector, DriftEvent
 from sqe.core.variance import VarianceCalculator, SpikeDetector
 from sqe.core.freq_detect import OscillationDetector
 from sqe.core.sqi import SignalQualityIndex, SQIWeights
+from sqe.core.stale import StaleDetector
+from sqe.core.step_change import StepChangeDetector
+from sqe.core.plausibility import PlausibilityChecker
 from sqe.core.signal_buffer import SignalBuffer
 
 
@@ -43,6 +46,23 @@ class SignalConfig:
     # Missing sample tracking
     missing_window: int = 100
 
+    # Stale detection
+    stale_window: int = 5
+    stale_recovery_window: int = 3
+
+    # Step-change detection
+    step_baseline_window: int = 10
+    step_threshold: float = 5.0
+    step_persistence_scans: int = 3
+    step_recovery_scans: int = 5
+
+    # Plausibility constraints
+    plausibility_min: Optional[float] = None
+    plausibility_max: Optional[float] = None
+    plausibility_max_rate: Optional[float] = None
+    plausibility_persistence_scans: int = 1
+    plausibility_recovery_scans: int = 1
+
     # SQI parameters
     sqi_weights: Optional[Dict[str, float]] = None
     sqi_noise_threshold: float = 0.1
@@ -63,10 +83,28 @@ class SignalConfig:
             "variance_window": self.variance_window,
             "freq_window": self.freq_window,
             "missing_window": self.missing_window,
+            "stale_window": self.stale_window,
+            "stale_recovery_window": self.stale_recovery_window,
+            "step_baseline_window": self.step_baseline_window,
+            "step_persistence_scans": self.step_persistence_scans,
+            "step_recovery_scans": self.step_recovery_scans,
+            "plausibility_persistence_scans": self.plausibility_persistence_scans,
+            "plausibility_recovery_scans": self.plausibility_recovery_scans,
         }
         for name, value in positive_int_params.items():
             if value <= 0:
                 raise ValueError(f"{name} must be > 0 (got {value}).")
+
+        if self.stale_window <= 1:
+            raise ValueError(
+                f"stale_window must be > 1 (got {self.stale_window})."
+            )
+
+        if self.step_baseline_window <= 1:
+            raise ValueError(
+                "step_baseline_window must be > 1 "
+                f"(got {self.step_baseline_window})."
+            )
 
         if self.sample_interval <= 0:
             raise ValueError(
@@ -84,10 +122,21 @@ class SignalConfig:
             "sqi_warning_threshold": self.sqi_warning_threshold,
             "drift_alert_threshold": self.drift_alert_threshold,
             "spike_alert_threshold": self.spike_alert_threshold,
+            "step_threshold": self.step_threshold,
         }
         for name, value in non_negative_params.items():
             if value < 0:
                 raise ValueError(f"{name} must be >= 0 (got {value}).")
+
+        if (
+            self.plausibility_min is not None
+            and self.plausibility_max is not None
+            and self.plausibility_min > self.plausibility_max
+        ):
+            raise ValueError(
+                "plausibility_min must be <= plausibility_max "
+                f"(got {self.plausibility_min} > {self.plausibility_max})."
+            )
 
         if self.reference_frequencies is None:
             # Default frequencies: 0.1 Hz, 0.5 Hz, 1 Hz
@@ -129,6 +178,14 @@ class ProcessedSignal:
     sqi_trend: str
     sqi_components: Dict[str, float]
     sqi_weights: Dict[str, float]
+
+    stale: bool
+    stale_reason: Optional[str]
+    step_change: bool
+    step_offset: Optional[float]
+    plausibility_violation: bool
+    plausibility_reasons: List[str]
+    plausibility_rate: Optional[float]
 
     # Alerts
     alert_level: str
@@ -200,6 +257,29 @@ class SignalProcessor:
         self.missing_buffer = SignalBuffer(config.missing_window)
         self.last_quality_class: Optional[str] = None
 
+        # Initialize stale detector
+        self.stale_detector = StaleDetector(
+            window_size=config.stale_window,
+            recovery_window=config.stale_recovery_window,
+        )
+
+        # Initialize step-change detector
+        self.step_detector = StepChangeDetector(
+            baseline_window=config.step_baseline_window,
+            step_threshold=config.step_threshold,
+            persistence_scans=config.step_persistence_scans,
+            recovery_scans=config.step_recovery_scans,
+        )
+
+        # Initialize plausibility checker
+        self.plausibility_checker = PlausibilityChecker(
+            min_value=config.plausibility_min,
+            max_value=config.plausibility_max,
+            max_rate=config.plausibility_max_rate,
+            persistence_scans=config.plausibility_persistence_scans,
+            recovery_scans=config.plausibility_recovery_scans,
+        )
+
     def update(
         self,
         x: Optional[float],
@@ -241,14 +321,29 @@ class SignalProcessor:
         # Frequency detection
         freq_result = self.osc_detector.update(x)
 
+        # Stale detection
+        stale_result = self.stale_detector.update(x, timestamp)
+
+        # Step-change detection
+        step_result = self.step_detector.update(x)
+
+        # Plausibility checks
+        plausibility_result = self.plausibility_checker.update(x, timestamp)
+
         # Calculate SQI
         missing_ratio = self.missing_buffer.get_missing_ratio()
+        stale_score = 0.0 if stale_result.is_stale else 100.0
+        step_score = 0.0 if step_result.is_step else 100.0
+        plausibility_score = 0.0 if plausibility_result.is_violation else 100.0
         sqi_result = self.sqi_calc.calculate(
             noise_level=variance_result["noise_level"],
             drift_rate=abs(drift_event.drift_rate),
             spike_frequency=spike_result["spike_frequency"],
             oscillation_energy=freq_result["total_oscillation_energy"],
-            missing_ratio=missing_ratio
+            missing_ratio=missing_ratio,
+            stale_score=stale_score,
+            step_score=step_score,
+            plausibility_score=plausibility_score,
         )
         self.last_quality_class = sqi_result["quality_class"]
 
@@ -285,6 +380,13 @@ class SignalProcessor:
             sqi_trend=sqi_result["trend"],
             sqi_components=sqi_result["components"],
             sqi_weights=sqi_result["weights"],
+            stale=stale_result.is_stale,
+            stale_reason=stale_result.reason,
+            step_change=step_result.is_step,
+            step_offset=step_result.offset,
+            plausibility_violation=plausibility_result.is_violation,
+            plausibility_reasons=plausibility_result.reasons,
+            plausibility_rate=plausibility_result.rate_of_change,
             alert_level=alert_level,
             drift_alert=drift_alert,
             spike_alert=spike_alert
@@ -304,6 +406,9 @@ class SignalProcessor:
         self.spike_detector.reset()
         self.osc_detector.reset()
         self.sqi_calc.reset()
+        self.stale_detector.reset()
+        self.step_detector.reset()
+        self.plausibility_checker.reset()
 
 
 class SignalQualityEngine:

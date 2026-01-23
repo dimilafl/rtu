@@ -28,6 +28,9 @@ class IncidentCause(str, Enum):
     """Dominant incident cause."""
 
     MISSING = "missing"
+    STALE = "stale"
+    STEP = "step"
+    PLAUSIBILITY = "plausibility"
     NOISE = "noise"
     DRIFT = "drift"
     SPIKES = "spikes"
@@ -83,6 +86,15 @@ class _SignalIncidentState:
 CAUSE_ACTIONS = {
     IncidentCause.MISSING: (
         "Check comms path, poll group, RTU health, and network stability."
+    ),
+    IncidentCause.STALE: (
+        "Check sensor update path, frozen polls, and timestamp wiring."
+    ),
+    IncidentCause.STEP: (
+        "Check sensor replacement, scaling changes, or swapped channels."
+    ),
+    IncidentCause.PLAUSIBILITY: (
+        "Verify engineering limits, scaling, and sensor plausibility."
     ),
     IncidentCause.DRIFT: (
         "Check instrument calibration, impulse line, and sensor health."
@@ -319,6 +331,9 @@ class IncidentEngine:
             "spikes": IncidentCause.SPIKES,
             "oscillation": IncidentCause.OSCILLATION,
             "missing": IncidentCause.MISSING,
+            "stale": IncidentCause.STALE,
+            "step": IncidentCause.STEP,
+            "plausibility": IncidentCause.PLAUSIBILITY,
         }
         candidates: List[Tuple[IncidentCause, float]] = []
         for name, score in processed.sqi_components.items():
