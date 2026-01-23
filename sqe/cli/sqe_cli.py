@@ -7,6 +7,7 @@ Usage:
     sqe simulate --duration 100 --noise 1.0 [--plot]
     sqe incidents --signal-file data.csv [--out incidents.jsonl]
     sqe replay --in scans.jsonl --config cfg.yaml --out out_dir
+    sqe eval --replay-out out_dir --labels labels.yaml
     sqe version
 """
 
@@ -21,6 +22,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 from collections import Counter
 
 from sqe.core.engine import SignalQualityEngine
+from sqe.core.event_filter import EventFilter
 from sqe.core.incidents import IncidentEngine, IncidentEventType
 from sqe.core.group_incidents import GroupIncidentEngine
 from sqe.core.grouping import GroupResolver
@@ -32,11 +34,18 @@ from sqe.config.loader import (
     get_engine_max_signals,
     get_engine_scan_interval,
     get_logging_settings,
+    get_event_filter_policy,
     get_incident_policy,
     get_group_incident_policy,
     get_grouping_config,
     load_config,
     load_groups_config,
+)
+from sqe.eval.labels import load_labels
+from sqe.eval.metrics import (
+    compute_metrics,
+    count_group_started_events,
+    load_predicted_started_events,
 )
 from sqe.ops.service import RealtimeQualityService
 from sqe.replay.runner import run_replay
@@ -375,6 +384,8 @@ def incidents_command(args):
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     incident_engine = IncidentEngine(get_incident_policy(config))
+    event_filter_policy = get_event_filter_policy(config)
+    event_filter = EventFilter(event_filter_policy)
     group_events_path: Optional[Path] = None
     group_resolver = None
     group_incident_engine = None
@@ -397,6 +408,8 @@ def incidents_command(args):
         incident_engine,
         group_resolver=group_resolver,
         group_incident_engine=group_incident_engine,
+        event_filter=event_filter,
+        event_filter_policy=event_filter_policy,
     )
 
     event_counts = Counter()
@@ -506,6 +519,47 @@ def replay_command(args):
         print(f"Error running replay: {exc}")
         return 1
     print(f"Replay output written to {args.out}")
+    return 0
+
+
+def eval_command(args):
+    """Execute eval command."""
+    try:
+        labels = load_labels(args.labels)
+        replay_dir = Path(args.replay_out)
+        incidents_path = replay_dir / "incidents.jsonl"
+        group_incidents_path = replay_dir / "group_incidents.jsonl"
+        predicted = load_predicted_started_events(str(incidents_path))
+        group_started = count_group_started_events(str(group_incidents_path))
+        metrics = compute_metrics(predicted, labels, group_started)
+    except (OSError, ValueError) as exc:
+        print(f"Error running eval: {exc}")
+        return 1
+
+    ordered_keys = [
+        "detection_precision",
+        "detection_recall",
+        "detection_f1",
+        "mean_time_to_detect_scans",
+        "cause_accuracy",
+        "severity_accuracy",
+    ]
+    for key in ordered_keys:
+        print(f"{key}: {metrics[key]}")
+
+    spam_metrics = metrics["spam_metrics"]
+    print(f"spam_metrics.total_signal_started: {spam_metrics['total_signal_started']}")
+    print(f"spam_metrics.total_group_started: {spam_metrics['total_group_started']}")
+    print(f"spam_metrics.starts_ratio: {spam_metrics['starts_ratio']}")
+
+    if args.out_json:
+        out_path = Path(args.out_json)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(
+            json.dumps(metrics, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
     return 0
 
 
@@ -685,6 +739,26 @@ def main():
         help='Optional path to group incident config YAML'
     )
 
+    # Eval command
+    eval_parser = subparsers.add_parser(
+        'eval',
+        help='Evaluate replay outputs against incident labels'
+    )
+    eval_parser.add_argument(
+        '--replay-out',
+        required=True,
+        help='Replay output directory containing incidents.jsonl'
+    )
+    eval_parser.add_argument(
+        '--labels',
+        required=True,
+        help='Path to YAML/JSON label file'
+    )
+    eval_parser.add_argument(
+        '--out-json',
+        help='Optional path to write metrics JSON output'
+    )
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -703,6 +777,8 @@ def main():
         return incidents_command(args)
     elif args.command == 'replay':
         return replay_command(args)
+    elif args.command == 'eval':
+        return eval_command(args)
     else:
         parser.print_help()
         return 1

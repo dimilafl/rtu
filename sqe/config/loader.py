@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from sqe.core.engine import SignalConfig
+from sqe.core.event_filter import EventFilterPolicy
 from sqe.core.incidents import IncidentCause, IncidentPolicy
 from sqe.core.group_incidents import GroupIncidentPolicy
 from sqe.core.grouping import GroupDefinition, GroupingConfig
@@ -414,4 +415,40 @@ def get_group_incident_policy(
         end_persistence_scans=end_persistence,
         critical_fraction_threshold=critical_fraction,
         emit_updates=emit_updates,
+    )
+
+
+def get_event_filter_policy(config: Dict[str, Any]) -> EventFilterPolicy:
+    """Build EventFilterPolicy from config values."""
+    event_filter = config.get("event_filter")
+    if not event_filter:
+        return EventFilterPolicy(
+            suppress_member_events=True,
+            suppress_when_group_event_active=True,
+        )
+
+    suppress_group_causes = event_filter.get("suppress_group_causes", ["comms"])
+    if not isinstance(suppress_group_causes, list):
+        raise ValueError("event_filter.suppress_group_causes must be a list")
+    suppress_event_types = event_filter.get(
+        "suppress_event_types", ["started", "updated"]
+    )
+    if not isinstance(suppress_event_types, list):
+        raise ValueError("event_filter.suppress_event_types must be a list")
+
+    return EventFilterPolicy(
+        suppress_member_events=bool(
+            event_filter.get("suppress_member_events", True)
+        ),
+        suppress_when_group_event_active=bool(
+            event_filter.get("suppress_when_group_event_active", True)
+        ),
+        suppress_group_causes=[str(cause) for cause in suppress_group_causes],
+        suppress_event_types=[str(event_type) for event_type in suppress_event_types],
+        allow_resolved_passthrough=bool(
+            event_filter.get("allow_resolved_passthrough", True)
+        ),
+        include_suppression_stats=bool(
+            event_filter.get("include_suppression_stats", True)
+        ),
     )

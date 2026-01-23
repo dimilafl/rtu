@@ -130,3 +130,15 @@ incidents:
   component_score_floor: 70
   emit_update_on_cause_change: true
   emit_update_on_severity_change: true
+
+# Event filtering settings
+event_filter:
+  suppress_member_events: true
+  suppress_when_group_event_active: true
+  suppress_group_causes:
+    - "comms"
+  suppress_event_types:
+    - "started"
+    - "updated"
+  allow_resolved_passthrough: true
+  include_suppression_stats: true
