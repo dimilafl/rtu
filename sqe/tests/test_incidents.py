@@ -195,8 +195,11 @@ def test_realtime_service_process_scan_returns_incidents():
     incident_engine = IncidentEngine(policy)
     service = RealtimeQualityService(engine, incident_engine)
 
-    processed, events = service.process_scan({"sig": None}, timestamp=1.0)
+    processed, events, group_events = service.process_scan(
+        {"sig": None}, timestamp=1.0
+    )
 
     assert processed == {}
     assert len(events) == 1
+    assert group_events == []
     assert service.scan_index == 1

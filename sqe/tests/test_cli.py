@@ -143,3 +143,62 @@ def test_incidents_command_writes_output(tmp_path, capsys):
     contents = out_path.read_text().strip()
     assert contents
     capsys.readouterr()
+
+
+def test_incidents_command_writes_group_incidents(tmp_path, capsys):
+    """Ensure incidents command emits group incidents when configured."""
+    csv_content = "\n".join([
+        "timestamp,signal_id,value",
+        "0.0,STATION_01_AI_001,",
+        "0.0,STATION_01_AI_002,",
+        "0.0,STATION_01_AI_003,",
+        "0.1,STATION_01_AI_001,",
+        "0.1,STATION_01_AI_002,",
+        "0.1,STATION_01_AI_003,",
+        "0.2,STATION_01_AI_001,",
+        "0.2,STATION_01_AI_002,",
+        "0.2,STATION_01_AI_003,",
+        "0.3,STATION_01_AI_001,",
+        "0.3,STATION_01_AI_002,",
+        "0.3,STATION_01_AI_003,",
+        "0.4,STATION_01_AI_001,",
+        "0.4,STATION_01_AI_002,",
+        "0.4,STATION_01_AI_003,",
+        ""
+    ])
+    csv_path = tmp_path / "signals.csv"
+    csv_path.write_text(csv_content)
+    out_path = tmp_path / "incidents.jsonl"
+    groups_path = tmp_path / "groups.yaml"
+    groups_path.write_text(
+        "\n".join([
+            "grouping:",
+            "  mode: prefix",
+            "  prefix_delimiter: _",
+            "  prefix_depth: 2",
+            "  min_members_for_group_incident: 2",
+            "  min_fraction_for_group_incident: 0.6",
+            "  persistence_scans: 1",
+            "  resolve_persistence_scans: 1",
+            "group_incidents:",
+            "  min_members_for_start: 2",
+            "  min_fraction_for_start: 0.6",
+            "  start_persistence_scans: 1",
+            "  end_persistence_scans: 1",
+            "  critical_fraction_threshold: 0.8",
+            "  emit_updates: true",
+        ])
+    )
+
+    args = SimpleNamespace(
+        signal_file=str(csv_path),
+        config=None,
+        out=str(out_path),
+        groups_config=str(groups_path),
+    )
+
+    assert incidents_command(args) == 0
+    group_out = tmp_path / "group_incidents.jsonl"
+    lines = [line for line in group_out.read_text().splitlines() if line.strip()]
+    assert len(lines) == 1
+    capsys.readouterr()

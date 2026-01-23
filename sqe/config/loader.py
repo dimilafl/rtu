@@ -15,6 +15,8 @@ import yaml
 
 from sqe.core.engine import SignalConfig
 from sqe.core.incidents import IncidentCause, IncidentPolicy
+from sqe.core.group_incidents import GroupIncidentPolicy
+from sqe.core.grouping import GroupDefinition, GroupingConfig
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "defaults.yaml"
 
@@ -65,6 +67,11 @@ def load_config(user_path: Optional[str] = None) -> Dict[str, Any]:
         user_config = _load_yaml(Path(user_path))
         return _deep_merge(defaults, user_config)
     return defaults
+
+
+def load_groups_config(user_path: str) -> Dict[str, Any]:
+    """Load grouping configuration from a YAML file."""
+    return _load_yaml(Path(user_path))
 
 
 def get_engine_scan_interval(config: Dict[str, Any]) -> float:
@@ -249,4 +256,117 @@ def get_incident_policy(config: Dict[str, Any]) -> IncidentPolicy:
         emit_update_on_severity_change=bool(
             incidents.get("emit_update_on_severity_change", True)
         ),
+    )
+
+
+def get_grouping_config(config: Dict[str, Any]) -> GroupingConfig:
+    """Build GroupingConfig from grouping configuration values."""
+    grouping = config.get("grouping", {})
+    mode = str(grouping.get("mode", "prefix")).lower()
+    if mode not in {"prefix", "explicit"}:
+        raise ValueError("grouping.mode must be 'prefix' or 'explicit'")
+
+    prefix_delimiter = str(grouping.get("prefix_delimiter", "_"))
+    prefix_depth = int(grouping.get("prefix_depth", 2))
+    if prefix_depth <= 0:
+        raise ValueError("grouping.prefix_depth must be > 0")
+
+    explicit_groups: List[GroupDefinition] = []
+    for entry in grouping.get("explicit_groups", []) or []:
+        if not isinstance(entry, dict):
+            raise ValueError("grouping.explicit_groups must be a list of mappings")
+        group_id = str(entry.get("group_id", "")).strip()
+        if not group_id:
+            raise ValueError("grouping.explicit_groups group_id is required")
+        signal_ids = entry.get("signal_ids")
+        if not isinstance(signal_ids, list):
+            raise ValueError(
+                f"grouping.explicit_groups signal_ids missing for {group_id}"
+            )
+        explicit_groups.append(
+            GroupDefinition(
+                group_id=group_id,
+                signal_ids=[str(signal_id) for signal_id in signal_ids],
+            )
+        )
+
+    min_members = int(grouping.get("min_members_for_group_incident", 2))
+    if min_members <= 0:
+        raise ValueError("grouping.min_members_for_group_incident must be > 0")
+    min_fraction = float(grouping.get("min_fraction_for_group_incident", 0.5))
+    if min_fraction < 0.0 or min_fraction > 1.0:
+        raise ValueError(
+            "grouping.min_fraction_for_group_incident must be between 0 and 1"
+        )
+    persistence_scans = int(grouping.get("persistence_scans", 2))
+    resolve_scans = int(grouping.get("resolve_persistence_scans", 2))
+    if persistence_scans <= 0 or resolve_scans <= 0:
+        raise ValueError("grouping persistence scans must be > 0")
+
+    return GroupingConfig(
+        mode=mode,
+        prefix_delimiter=prefix_delimiter,
+        prefix_depth=prefix_depth,
+        explicit_groups=explicit_groups,
+        min_members_for_group_incident=min_members,
+        min_fraction_for_group_incident=min_fraction,
+        persistence_scans=persistence_scans,
+        resolve_persistence_scans=resolve_scans,
+    )
+
+
+def get_group_incident_policy(
+    config: Dict[str, Any],
+    grouping_config: Optional[GroupingConfig] = None,
+) -> GroupIncidentPolicy:
+    """Build GroupIncidentPolicy from group incident configuration values."""
+    group_incidents = config.get("group_incidents", {})
+    grouping = grouping_config or GroupingConfig(mode="prefix")
+
+    def read_int(name: str, value: Any, fallback: int) -> int:
+        number = int(value if value is not None else fallback)
+        if number <= 0:
+            raise ValueError(f"{name} must be > 0")
+        return number
+
+    def read_fraction(name: str, value: Any, fallback: float) -> float:
+        number = float(value if value is not None else fallback)
+        if number < 0.0 or number > 1.0:
+            raise ValueError(f"{name} must be between 0 and 1")
+        return number
+
+    min_members = read_int(
+        "group_incidents.min_members_for_start",
+        group_incidents.get("min_members_for_start"),
+        grouping.min_members_for_group_incident,
+    )
+    min_fraction = read_fraction(
+        "group_incidents.min_fraction_for_start",
+        group_incidents.get("min_fraction_for_start"),
+        grouping.min_fraction_for_group_incident,
+    )
+    start_persistence = read_int(
+        "group_incidents.start_persistence_scans",
+        group_incidents.get("start_persistence_scans"),
+        grouping.persistence_scans,
+    )
+    end_persistence = read_int(
+        "group_incidents.end_persistence_scans",
+        group_incidents.get("end_persistence_scans"),
+        grouping.resolve_persistence_scans,
+    )
+    critical_fraction = read_fraction(
+        "group_incidents.critical_fraction_threshold",
+        group_incidents.get("critical_fraction_threshold"),
+        0.8,
+    )
+    emit_updates = bool(group_incidents.get("emit_updates", True))
+
+    return GroupIncidentPolicy(
+        min_members_for_start=min_members,
+        min_fraction_for_start=min_fraction,
+        start_persistence_scans=start_persistence,
+        end_persistence_scans=end_persistence,
+        critical_fraction_threshold=critical_fraction,
+        emit_updates=emit_updates,
     )

@@ -6,6 +6,7 @@ Usage:
     sqe analyze --signal-file data.csv [--plot]
     sqe simulate --duration 100 --noise 1.0 [--plot]
     sqe incidents --signal-file data.csv [--out incidents.jsonl]
+    sqe replay --in scans.jsonl --config cfg.yaml --out out_dir
     sqe version
 """
 
@@ -21,6 +22,8 @@ from collections import Counter
 
 from sqe.core.engine import SignalQualityEngine
 from sqe.core.incidents import IncidentEngine, IncidentEventType
+from sqe.core.group_incidents import GroupIncidentEngine
+from sqe.core.grouping import GroupResolver
 from sqe.config.loader import (
     ConfigError,
     build_signal_config,
@@ -30,9 +33,13 @@ from sqe.config.loader import (
     get_engine_scan_interval,
     get_logging_settings,
     get_incident_policy,
+    get_group_incident_policy,
+    get_grouping_config,
     load_config,
+    load_groups_config,
 )
 from sqe.ops.service import RealtimeQualityService
+from sqe.replay.runner import run_replay
 from sqe import __version__
 
 
@@ -364,18 +371,46 @@ def incidents_command(args):
             build_signal_config(config, signal_id, scan_interval)
         )
 
-    incident_engine = IncidentEngine(get_incident_policy(config))
-    service = RealtimeQualityService(engine, incident_engine)
-
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
+    incident_engine = IncidentEngine(get_incident_policy(config))
+    group_events_path: Optional[Path] = None
+    group_resolver = None
+    group_incident_engine = None
+    groups_config_path = getattr(args, "groups_config", None)
+    if groups_config_path:
+        try:
+            group_config = load_groups_config(groups_config_path)
+            grouping_config = get_grouping_config(group_config)
+            group_policy = get_group_incident_policy(group_config, grouping_config)
+        except (ValueError, ConfigError) as exc:
+            print(f"Error loading groups config: {exc}")
+            return 1
+        group_resolver = GroupResolver(grouping_config)
+        group_incident_engine = GroupIncidentEngine(group_policy)
+        group_events_path = out_path.parent / "group_incidents.jsonl"
+        group_events_path.write_text("", encoding="utf-8")
+
+    service = RealtimeQualityService(
+        engine,
+        incident_engine,
+        group_resolver=group_resolver,
+        group_incident_engine=group_incident_engine,
+    )
+
     event_counts = Counter()
     cause_counts = Counter()
+    group_event_counts = Counter()
 
+    group_handle = (
+        group_events_path.open("a", encoding="utf-8") if group_events_path else None
+    )
     with out_path.open("w", encoding="utf-8") as handle:
         for timestamp, scan_values in scans:
-            _, events = service.process_scan(scan_values, timestamp=timestamp)
+            _, events, group_events = service.process_scan(
+                scan_values, timestamp=timestamp
+            )
             for event in events:
                 event_counts[event.event_type] += 1
                 if event.event_type == IncidentEventType.STARTED:
@@ -401,7 +436,33 @@ def incidents_command(args):
                 }
                 handle.write(json.dumps(payload, sort_keys=True))
                 handle.write("\n")
+            if group_handle:
+                for event in group_events:
+                    group_event_counts[event.event_type] += 1
+                    incident = event.incident
+                    details = incident.details or {}
+                    payload = {
+                        "group_id": incident.group_id,
+                        "group_incident_id": incident.group_incident_id,
+                        "timestamp": incident.last_timestamp,
+                        "event_type": event.event_type.value,
+                        "severity": incident.severity.value,
+                        "cause": incident.cause.value,
+                        "degraded_fraction": details.get(
+                            "degraded_fraction", 0.0
+                        ),
+                        "degraded_members": list(incident.degraded_members),
+                        "counts": {
+                            "members_total": details.get("members_total", 0),
+                            "members_degraded": details.get("members_degraded", 0),
+                        },
+                    }
+                    group_handle.write(json.dumps(payload, sort_keys=True))
+                    group_handle.write("\n")
         handle.flush()
+    if group_handle:
+        group_handle.flush()
+        group_handle.close()
 
     started = event_counts[IncidentEventType.STARTED]
     resolved = event_counts[IncidentEventType.RESOLVED]
@@ -420,6 +481,31 @@ def incidents_command(args):
     else:
         print("  Top causes: none")
 
+    if group_events_path:
+        group_started = group_event_counts[IncidentEventType.STARTED]
+        group_updated = group_event_counts[IncidentEventType.UPDATED]
+        group_resolved = group_event_counts[IncidentEventType.RESOLVED]
+        print("Group incident summary")
+        print(f"  Started: {group_started}")
+        print(f"  Updated: {group_updated}")
+        print(f"  Resolved: {group_resolved}")
+
+    return 0
+
+
+def replay_command(args):
+    """Execute replay command."""
+    try:
+        run_replay(
+            input_jsonl_path=args.input_jsonl,
+            config_path=args.config,
+            groups_config_path=args.groups_config,
+            out_dir=args.out,
+        )
+    except (ValueError, ConfigError, OSError) as exc:
+        print(f"Error running replay: {exc}")
+        return 1
+    print(f"Replay output written to {args.out}")
     return 0
 
 
@@ -568,6 +654,36 @@ def main():
         default='incidents.jsonl',
         help='Output JSONL file for incident events'
     )
+    incidents_parser.add_argument(
+        '--groups-config',
+        help='Optional path to group incident config YAML'
+    )
+
+    # Replay command
+    replay_parser = subparsers.add_parser(
+        'replay',
+        help='Replay scan inputs into deterministic outputs'
+    )
+    replay_parser.add_argument(
+        '--in',
+        dest='input_jsonl',
+        required=True,
+        help='Input JSONL file of scan records'
+    )
+    replay_parser.add_argument(
+        '--config',
+        required=True,
+        help='Path to SQE config YAML'
+    )
+    replay_parser.add_argument(
+        '--out',
+        required=True,
+        help='Output directory for replay artifacts'
+    )
+    replay_parser.add_argument(
+        '--groups-config',
+        help='Optional path to group incident config YAML'
+    )
 
     # Parse arguments
     args = parser.parse_args()
@@ -585,6 +701,8 @@ def main():
         return version_command(args)
     elif args.command == 'incidents':
         return incidents_command(args)
+    elif args.command == 'replay':
+        return replay_command(args)
     else:
         parser.print_help()
         return 1
