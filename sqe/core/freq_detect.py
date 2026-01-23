@@ -55,22 +55,20 @@ class FrequencyDetector:
 
         self.buffer = SignalBuffer(window_size)
         self.sample_count = 0
+        self._last_sample_count: Optional[int] = None
+        self._last_components: Optional[List[FrequencyComponent]] = None
 
         # Pre-compute reference waveforms for efficiency
         self._precompute_references()
 
     def _precompute_references(self) -> None:
         """Pre-compute sine and cosine references for all frequencies."""
-        self.sin_refs = {}
-        self.cos_refs = {}
-
         n = np.arange(self.window_size)
-
-        for freq in self.ref_frequencies:
-            # Generate reference waveforms
-            omega = 2 * np.pi * freq * self.dt
-            self.sin_refs[freq] = np.sin(omega * n)
-            self.cos_refs[freq] = np.cos(omega * n)
+        freq_array = np.array(self.ref_frequencies, dtype=float)
+        omega = 2 * np.pi * freq_array[:, np.newaxis] * self.dt
+        self._sin_refs = np.sin(omega * n)
+        self._cos_refs = np.cos(omega * n)
+        self._freq_index = {freq: index for index, freq in enumerate(self.ref_frequencies)}
 
     def update(self, x: float) -> Dict[float, FrequencyComponent]:
         """
@@ -90,15 +88,60 @@ class FrequencyDetector:
             return {}
 
         samples = self.buffer.get_samples()
-        detected = {}
+        components = self._get_components(samples)
+        detected: Dict[float, FrequencyComponent] = {}
 
-        for freq in self.ref_frequencies:
-            component = self._detect_frequency(samples, freq)
-
+        for freq, component in zip(self.ref_frequencies, components):
             if component.magnitude > self.threshold:
                 detected[freq] = component
 
         return detected
+
+    def _get_components(self, samples: np.ndarray) -> List[FrequencyComponent]:
+        """Return cached or freshly computed components for current window."""
+        if self._last_sample_count == self.sample_count and self._last_components is not None:
+            return self._last_components
+
+        components = self._detect_all_frequencies(samples)
+        self._last_sample_count = self.sample_count
+        self._last_components = components
+        return components
+
+    def _detect_all_frequencies(self, samples: np.ndarray) -> List[FrequencyComponent]:
+        """
+        Detect frequency components using vectorized correlation.
+
+        Args:
+            samples: Signal samples
+
+        Returns:
+            List of FrequencyComponent in the same order as reference_frequencies
+        """
+        samples_normalized = samples - np.mean(samples)
+        std = np.std(samples_normalized)
+        if std > 0:
+            samples_normalized = samples_normalized / std
+
+        sin_corr = (self._sin_refs @ samples_normalized) / len(samples)
+        cos_corr = (self._cos_refs @ samples_normalized) / len(samples)
+
+        magnitudes = np.sqrt(sin_corr**2 + cos_corr**2)
+        phases = np.arctan2(sin_corr, cos_corr)
+        energies = magnitudes**2
+
+        components = []
+        for freq, magnitude, phase, energy in zip(
+            self.ref_frequencies, magnitudes, phases, energies
+        ):
+            components.append(
+                FrequencyComponent(
+                    frequency=freq,
+                    magnitude=float(magnitude),
+                    phase=float(phase),
+                    energy=float(energy),
+                )
+            )
+        return components
 
     def _detect_frequency(
         self,
@@ -121,8 +164,9 @@ class FrequencyDetector:
             samples_normalized /= np.std(samples_normalized)
 
         # Correlate with sine and cosine references
-        sin_corr = np.sum(samples_normalized * self.sin_refs[freq]) / len(samples)
-        cos_corr = np.sum(samples_normalized * self.cos_refs[freq]) / len(samples)
+        freq_index = self._freq_index[freq]
+        sin_corr = np.sum(samples_normalized * self._sin_refs[freq_index]) / len(samples)
+        cos_corr = np.sum(samples_normalized * self._cos_refs[freq_index]) / len(samples)
 
         # Calculate magnitude and phase
         magnitude = np.sqrt(sin_corr**2 + cos_corr**2)
@@ -149,10 +193,7 @@ class FrequencyDetector:
             return None
 
         samples = self.buffer.get_samples()
-        components = [
-            self._detect_frequency(samples, freq)
-            for freq in self.ref_frequencies
-        ]
+        components = self._get_components(samples)
 
         # Filter by threshold
         detected = [c for c in components if c.magnitude > self.threshold]
@@ -174,19 +215,19 @@ class FrequencyDetector:
             return 0.0
 
         samples = self.buffer.get_samples()
-        total_energy = 0.0
-
-        for freq in self.ref_frequencies:
-            component = self._detect_frequency(samples, freq)
-            if component.magnitude > self.threshold:
-                total_energy += component.energy
-
-        return total_energy
+        components = self._get_components(samples)
+        return sum(
+            component.energy
+            for component in components
+            if component.magnitude > self.threshold
+        )
 
     def reset(self) -> None:
         """Reset detector state."""
         self.buffer.clear()
         self.sample_count = 0
+        self._last_sample_count = None
+        self._last_components = None
 
 
 class FFTFrequencyAnalyzer:
@@ -207,6 +248,8 @@ class FFTFrequencyAnalyzer:
         self.window_size = window_size
         self.dt = sample_interval
         self.buffer = SignalBuffer(window_size)
+        self._window = np.hanning(window_size)
+        self._frequencies = np.fft.rfftfreq(window_size, self.dt)
 
     def update(self, x: float) -> Dict:
         """
@@ -231,14 +274,14 @@ class FFTFrequencyAnalyzer:
         samples = self.buffer.get_samples()
 
         # Apply Hanning window to reduce spectral leakage
-        windowed = samples * np.hanning(len(samples))
+        windowed = samples * self._window
 
         # Compute FFT
         fft = np.fft.rfft(windowed)
         magnitudes = np.abs(fft) / len(samples)
 
         # Frequency bins
-        frequencies = np.fft.rfftfreq(len(samples), self.dt)
+        frequencies = self._frequencies
 
         # Find peak (exclude DC component)
         if len(magnitudes) > 1:
