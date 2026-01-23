@@ -6,7 +6,7 @@ import argparse
 import math
 import statistics
 import time
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import random
 
 from sqe.config.loader import (
@@ -22,14 +22,26 @@ from sqe.core.incidents import IncidentEngine
 from sqe.ops.service import RealtimeQualityService
 
 
+def _apply_fast_mode(config: Dict[str, Any]) -> Dict[str, Any]:
+    frequency = dict(config.get("frequency", {}))
+    frequency["enable_fft"] = False
+    frequency.setdefault("default_references", [])
+    config["frequency"] = frequency
+    return config
+
+
 def run_bench(
     signals: int,
     scans: int,
     scan_interval: float,
     missing_rate: float,
+    config_path: Optional[str],
+    fast: bool,
 ) -> None:
     rng = random.Random(42)
-    config = load_config()
+    config = load_config(config_path)
+    if fast:
+        config = _apply_fast_mode(config)
 
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
@@ -98,6 +110,13 @@ def main() -> None:
     parser.add_argument("--scans", type=int, default=1000)
     parser.add_argument("--scan-interval", type=float, default=0.1)
     parser.add_argument("--missing-rate", type=float, default=0.01)
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument("--config", type=str, help="Path to config YAML")
+    mode_group.add_argument(
+        "--fast",
+        action="store_true",
+        help="Disable FFT-heavy analysis for quick, deterministic runs",
+    )
     args = parser.parse_args()
 
     if args.signals <= 0 or args.scans <= 0:
@@ -110,6 +129,8 @@ def main() -> None:
         scans=args.scans,
         scan_interval=args.scan_interval,
         missing_rate=args.missing_rate,
+        config_path=args.config,
+        fast=args.fast,
     )
 
 

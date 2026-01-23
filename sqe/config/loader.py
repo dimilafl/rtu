@@ -183,6 +183,7 @@ def build_signal_config(
         reference_frequencies=frequency.get("default_references"),
         sample_interval=sample_interval,
         freq_window=frequency.get("window_size", 50),
+        enable_fft=frequency.get("enable_fft", True),
         sqi_weights=sqi.get("weights"),
         sqi_noise_threshold=sqi_thresholds.get("noise", 0.1),
         sqi_drift_threshold=sqi_thresholds.get("drift", 1.0),

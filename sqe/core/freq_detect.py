@@ -316,7 +316,8 @@ class OscillationDetector:
         self,
         reference_frequencies: List[float],
         sample_interval: float,
-        window_size: int = 50
+        window_size: int = 50,
+        enable_fft: bool = True,
     ):
         """
         Initialize combined oscillation detector.
@@ -325,13 +326,18 @@ class OscillationDetector:
             reference_frequencies: Frequencies to detect via correlation
             sample_interval: Time between samples
             window_size: Analysis window size
+            enable_fft: Toggle FFT-based spectrum analysis
         """
         self.freq_detector = FrequencyDetector(
             reference_frequencies,
             sample_interval,
             window_size
         )
-        self.fft_analyzer = FFTFrequencyAnalyzer(window_size, sample_interval)
+        self.fft_analyzer = (
+            FFTFrequencyAnalyzer(window_size, sample_interval)
+            if enable_fft
+            else None
+        )
 
     def update(self, x: float) -> Dict:
         """
@@ -349,7 +355,10 @@ class OscillationDetector:
         dominant = self.freq_detector.get_dominant_frequency()
 
         # FFT-based analysis
-        spectrum = self.fft_analyzer.update(x)
+        if self.fft_analyzer:
+            spectrum = self.fft_analyzer.update(x)
+        else:
+            spectrum = {"peak_frequency": None, "peak_magnitude": 0.0}
 
         return {
             "correlation_components": {
@@ -366,4 +375,5 @@ class OscillationDetector:
     def reset(self) -> None:
         """Reset both detectors."""
         self.freq_detector.reset()
-        self.fft_analyzer.reset()
+        if self.fft_analyzer:
+            self.fft_analyzer.reset()

@@ -44,6 +44,7 @@ class SignalConfig:
     reference_frequencies: List[float] = None
     sample_interval: float = 0.1
     freq_window: int = 50
+    enable_fft: bool = True
 
     # Missing sample tracking
     missing_window: int = 100
@@ -239,7 +240,8 @@ class SignalProcessor:
         self.osc_detector = OscillationDetector(
             reference_frequencies=config.reference_frequencies,
             sample_interval=config.sample_interval,
-            window_size=config.freq_window
+            window_size=config.freq_window,
+            enable_fft=config.enable_fft,
         )
 
         # Initialize SQI calculator
