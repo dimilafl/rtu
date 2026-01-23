@@ -220,6 +220,14 @@ class GroupIncidentEngine:
 
         return events
 
+    def get_active_incidents(self) -> Dict[str, GroupIncident]:
+        """Return active group incidents keyed by group_id."""
+        return {
+            group_id: state.active_incident
+            for group_id, state in self._state_by_group.items()
+            if state.active_incident is not None
+        }
+
     @staticmethod
     def _classify_cause(
         member_status: Dict[str, Any],

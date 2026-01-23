@@ -1,0 +1,28 @@
+engine:
+  scan_interval: 0.1
+  auto_register: true
+logging:
+  log_scan_timing: false
+  log_quality_changes: false
+  log_anomalies: false
+performance:
+  max_signals: 1000
+incidents:
+  start_sqi_threshold: 50
+  end_sqi_threshold: 60
+  start_persistence_scans: 1
+  end_persistence_scans: 1
+  critical_sqi_threshold: 25
+  component_score_floor: 70
+  emit_update_on_cause_change: true
+  emit_update_on_severity_change: true
+event_filter:
+  suppress_member_events: true
+  suppress_when_group_event_active: true
+  suppress_group_causes:
+    - "comms"
+  suppress_event_types:
+    - "started"
+    - "updated"
+  allow_resolved_passthrough: true
+  include_suppression_stats: true

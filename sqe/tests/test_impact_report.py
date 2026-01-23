@@ -55,8 +55,8 @@ def test_impact_report_counts(tmp_path):
     )
 
     report = result.stdout
-    assert _extract_count(report, "## Signal incidents", "started") == 2
+    assert _extract_count(report, "## Signal incidents", "started") == 0
     assert _extract_count(report, "## Signal incidents", "resolved") == 0
     assert _extract_count(report, "## Group incidents", "started") == 1
     assert _extract_count(report, "## Group incidents", "resolved") == 0
-    assert _extract_ratio(report) == "2.000"
+    assert _extract_ratio(report) == "0.000"

@@ -12,6 +12,7 @@ from sqe.config.loader import (
     get_engine_auto_register,
     get_engine_max_signals,
     get_engine_scan_interval,
+    get_event_filter_policy,
     get_incident_policy,
     get_group_incident_policy,
     get_grouping_config,
@@ -19,6 +20,7 @@ from sqe.config.loader import (
     load_groups_config,
 )
 from sqe.core.engine import ProcessedSignal, SignalQualityEngine
+from sqe.core.event_filter import EventFilter
 from sqe.core.group_incidents import GroupIncidentEngine, GroupIncidentEvent
 from sqe.core.grouping import GroupResolver
 from sqe.core.incidents import IncidentEngine, IncidentEvent
@@ -61,6 +63,8 @@ def run_replay(
             )
 
     incident_engine = IncidentEngine(get_incident_policy(config))
+    event_filter_policy = get_event_filter_policy(config)
+    event_filter = EventFilter(event_filter_policy)
 
     group_resolver = None
     group_incident_engine = None
@@ -76,6 +80,8 @@ def run_replay(
         incident_engine,
         group_resolver=group_resolver,
         group_incident_engine=group_incident_engine,
+        event_filter=event_filter,
+        event_filter_policy=event_filter_policy,
     )
 
     output_dir = Path(out_dir)

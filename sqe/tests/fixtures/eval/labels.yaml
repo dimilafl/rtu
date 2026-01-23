@@ -1,0 +1,10 @@
+- signal_id: STATION_01_AI_001
+  start_scan_index: 0
+  end_scan_index: 0
+  cause: missing
+  severity: warning
+- signal_id: STATION_01_AI_002
+  start_scan_index: 0
+  end_scan_index: 0
+  cause: missing
+  severity: warning

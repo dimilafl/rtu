@@ -6,6 +6,7 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqe.core.engine import ProcessedSignal, SignalQualityEngine
+from sqe.core.event_filter import EventFilter, EventFilterPolicy
 from sqe.core.incidents import IncidentEngine, IncidentEvent
 from sqe.core.group_incidents import GroupIncidentEngine, GroupIncidentEvent
 from sqe.core.grouping import GroupResolver
@@ -21,11 +22,15 @@ class RealtimeQualityService:
         incident_engine: IncidentEngine,
         group_resolver: Optional[GroupResolver] = None,
         group_incident_engine: Optional[GroupIncidentEngine] = None,
+        event_filter: Optional[EventFilter] = None,
+        event_filter_policy: Optional[EventFilterPolicy] = None,
     ) -> None:
         self.engine = engine
         self.incident_engine = incident_engine
         self.group_resolver = group_resolver
         self.group_incident_engine = group_incident_engine
+        self.event_filter = event_filter
+        self.event_filter_policy = event_filter_policy
         self.scan_index = 0
 
     def process_scan(
@@ -64,6 +69,7 @@ class RealtimeQualityService:
             raw_missing_ratio_by_signal=raw_missing_ratio_by_signal,
         )
         group_events: List[GroupIncidentEvent] = []
+        signal_id_to_group_id: Dict[str, str] = {}
         if self.group_resolver and self.group_incident_engine:
             group_id_to_member_status: Dict[str, Dict[str, Dict[str, Any]]] = {}
             for signal_id, status in statuses.items():
@@ -71,10 +77,25 @@ class RealtimeQualityService:
                 if group_id is None:
                     continue
                 group_id_to_member_status.setdefault(group_id, {})[signal_id] = status
+                signal_id_to_group_id[signal_id] = group_id
             group_events = self.group_incident_engine.update_scan(
                 scan_index=self.scan_index,
                 timestamp=timestamp,
                 group_id_to_member_status=group_id_to_member_status,
+            )
+        if self.event_filter and self.event_filter_policy:
+            active_group_incidents = (
+                self.group_incident_engine.get_active_incidents()
+                if self.group_incident_engine
+                else {}
+            )
+            events, _ = self.event_filter.filter_events(
+                scan_index=self.scan_index,
+                timestamp=timestamp,
+                signal_events=events,
+                group_events=group_events,
+                active_group_incidents=active_group_incidents,
+                signal_id_to_group_id=signal_id_to_group_id,
             )
         self.scan_index += 1
         return processed, events, group_events
@@ -115,6 +136,7 @@ class RealtimeQualityService:
             raw_missing_ratio_by_signal=raw_missing_ratio_by_signal,
         )
         group_events: List[GroupIncidentEvent] = []
+        signal_id_to_group_id: Dict[str, str] = {}
         if self.group_resolver and self.group_incident_engine:
             group_id_to_member_status: Dict[str, Dict[str, Dict[str, Any]]] = {}
             for signal_id, status in statuses.items():
@@ -124,10 +146,25 @@ class RealtimeQualityService:
                 group_id_to_member_status.setdefault(group_id, {})[
                     signal_id
                 ] = status
+                signal_id_to_group_id[signal_id] = group_id
             group_events = self.group_incident_engine.update_scan(
                 scan_index=self.scan_index,
                 timestamp=timestamp,
                 group_id_to_member_status=group_id_to_member_status,
+            )
+        if self.event_filter and self.event_filter_policy:
+            active_group_incidents = (
+                self.group_incident_engine.get_active_incidents()
+                if self.group_incident_engine
+                else {}
+            )
+            events, _ = self.event_filter.filter_events(
+                scan_index=self.scan_index,
+                timestamp=timestamp,
+                signal_events=events,
+                group_events=group_events,
+                active_group_incidents=active_group_incidents,
+                signal_id_to_group_id=signal_id_to_group_id,
             )
         self.scan_index += 1
         return processed, events, group_events
