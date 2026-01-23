@@ -56,6 +56,7 @@ class StepChangeDetector:
         if len(self._window) == self.baseline_window:
             baseline = float(np.mean(self._window))
 
+        activated = False
         if not self._active and baseline is not None:
             if self._candidate_level is None:
                 if abs(value - baseline) >= self.step_threshold:
@@ -73,11 +74,13 @@ class StepChangeDetector:
                 if self._confirm_count >= self.persistence_scans:
                     self._active = True
                     self._recovery_count = 0
+                    activated = True
 
-        if self._active:
+        if self._active and not activated:
             if (
-                self._candidate_level is not None
-                and abs(value - self._candidate_level) <= self.step_threshold
+                baseline is not None
+                and self._candidate_level is not None
+                and abs(baseline - self._candidate_level) <= self.step_threshold
             ):
                 self._recovery_count += 1
             else:
