@@ -6,6 +6,7 @@ Synchronizes SQE updates with PLC scan timing for deterministic execution.
 """
 
 from typing import Dict, Optional, Callable, Any
+import logging
 import time
 
 from sqe.core.engine import SignalQualityEngine
@@ -22,7 +23,9 @@ class PLCScanAdapter:
     def __init__(
         self,
         engine: SignalQualityEngine,
-        scan_interval: float = 0.1
+        scan_interval: float = 0.1,
+        warn_on_overrun: bool = True,
+        logger: Optional[logging.Logger] = None,
     ):
         """
         Initialize PLC scan adapter.
@@ -33,12 +36,17 @@ class PLCScanAdapter:
         """
         self.engine = engine
         self.scan_interval = scan_interval
+        self.warn_on_overrun = warn_on_overrun
+        self.logger = logger or logging.getLogger(__name__)
 
         # Scan metrics
         self.scan_number = 0
         self.last_scan_time: Optional[float] = None
         self.scan_durations = []
         self.max_scan_history = 100
+        self.error_count = 0
+        self.last_error: Optional[str] = None
+        self.overruns = 0
 
         # Callbacks
         self.pre_scan_callback: Optional[Callable] = None
@@ -82,6 +90,7 @@ class PLCScanAdapter:
             Dictionary with scan results and metrics
         """
         scan_start = time.time()
+        perf_start = time.perf_counter()
         self.scan_number += 1
 
         # Pre-scan callback
@@ -89,11 +98,22 @@ class PLCScanAdapter:
             self.pre_scan_callback(self.scan_number)
 
         # Process all signals through SQE
-        processed_signals = self.engine.update(signal_values)
+        status = "ok"
+        error = None
+        try:
+            processed_signals = self.engine.update(signal_values)
+        except Exception as exc:
+            status = "error"
+            error = f"{type(exc).__name__}: {exc}"
+            self.error_count += 1
+            self.last_error = error
+            processed_signals = {}
 
         # Calculate scan timing
         scan_end = time.time()
+        perf_end = time.perf_counter()
         scan_duration = scan_end - scan_start
+        elapsed = perf_end - perf_start
 
         # Track scan performance
         self.scan_durations.append(scan_duration)
@@ -107,13 +127,14 @@ class PLCScanAdapter:
             actual_interval = self.scan_interval
 
         self.last_scan_time = scan_start
-        utilization = (
-            scan_duration / self.scan_interval if self.scan_interval > 0 else 0.0
-        )
-        overrun = scan_duration > self.scan_interval
-        overruns = sum(
-            1 for duration in self.scan_durations if duration > self.scan_interval
-        )
+        utilization = elapsed / self.scan_interval if self.scan_interval > 0 else 0.0
+        overrun = max(0.0, elapsed - (self.scan_interval or 0.0))
+        if overrun > 0:
+            self.overruns += 1
+            if self.warn_on_overrun and self.logger:
+                self.logger.warning(
+                    "scan overrun %.6fs utilization=%.3f", overrun, utilization
+                )
 
         # Build scan result
         scan_result = {
@@ -125,7 +146,9 @@ class PLCScanAdapter:
             "timing_error": actual_interval - self.scan_interval,
             "utilization": utilization,
             "overrun": overrun,
-            "overruns": overruns,
+            "overruns": self.overruns,
+            "status": status,
+            "error": error,
             "processed_signals": {
                 sig_id: sig.to_dict()
                 for sig_id, sig in processed_signals.items()
@@ -152,7 +175,10 @@ class PLCScanAdapter:
                 "mean_duration": 0.0,
                 "max_duration": 0.0,
                 "min_duration": 0.0,
-                "utilization": 0.0
+                "utilization": 0.0,
+                "error_count": self.error_count,
+                "last_error": self.last_error,
+                "overruns": self.overruns,
             }
 
         mean_duration = sum(self.scan_durations) / len(self.scan_durations)
@@ -167,7 +193,9 @@ class PLCScanAdapter:
             "min_duration": min_duration,
             "utilization": utilization,
             "target_interval": self.scan_interval,
-            "overruns": sum(1 for d in self.scan_durations if d > self.scan_interval)
+            "overruns": self.overruns,
+            "error_count": self.error_count,
+            "last_error": self.last_error,
         }
 
     def check_scan_overrun(self, scan_duration: float) -> bool:
@@ -187,6 +215,9 @@ class PLCScanAdapter:
         self.scan_number = 0
         self.last_scan_time = None
         self.scan_durations = []
+        self.error_count = 0
+        self.last_error = None
+        self.overruns = 0
 
 
 class ScanCycleController:
