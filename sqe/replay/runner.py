@@ -105,13 +105,21 @@ def run_replay(
                 )
             for scan_index, timestamp, samples in _iter_scans(input_jsonl_path):
                 service.scan_index = scan_index
-                processed, incident_events, group_events = (
+                processed_scan, incident_events, group_events = (
                     service.process_scan_samples(samples, timestamp=timestamp)
                 )
 
                 if write_processed:
-                    publisher.publish_processed(timestamp, processed)
-                    processed_rows = _build_processed_rows(timestamp, processed)
+                    publisher.publish_processed(
+                        timestamp,
+                        processed_scan.processed_signals,
+                        suppression_stats=processed_scan.suppression_stats,
+                    )
+                    processed_rows = _build_processed_rows(
+                        timestamp,
+                        processed_scan.processed_signals,
+                        processed_scan.suppression_stats,
+                    )
                     for row in processed_rows:
                         processed_handle.write(json.dumps(row, sort_keys=True))
                         processed_handle.write("\n")
@@ -176,25 +184,27 @@ def _iter_scans(
 def _build_processed_rows(
     scan_timestamp: float,
     processed: Dict[str, ProcessedSignal],
+    suppression_stats: Optional[Dict[str, int]] = None,
 ) -> List[Dict[str, Any]]:
     rows = []
     for signal_id in sorted(processed):
         signal = processed[signal_id]
-        rows.append(
-            {
-                "scan_timestamp": scan_timestamp,
-                "signal_id": signal_id,
-                "timestamp": signal.timestamp,
-                "sqi": signal.sqi,
-                "quality_class": signal.quality_class,
-                "dominant_cause": _dominant_cause(signal.sqi_components),
-                "severity": _severity_from_signal(signal),
-                "components": signal.sqi_components,
-                "alert_level": signal.alert_level,
-                "drift_alert": signal.drift_alert,
-                "spike_alert": signal.spike_alert,
-            }
-        )
+        payload = {
+            "scan_timestamp": scan_timestamp,
+            "signal_id": signal_id,
+            "timestamp": signal.timestamp,
+            "sqi": signal.sqi,
+            "quality_class": signal.quality_class,
+            "dominant_cause": _dominant_cause(signal.sqi_components),
+            "severity": _severity_from_signal(signal),
+            "components": signal.sqi_components,
+            "alert_level": signal.alert_level,
+            "drift_alert": signal.drift_alert,
+            "spike_alert": signal.spike_alert,
+        }
+        if suppression_stats is not None:
+            payload["suppression_stats"] = suppression_stats
+        rows.append(payload)
     return rows
 
 
