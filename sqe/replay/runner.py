@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -87,6 +88,8 @@ def run_replay(
 
     output_dir = Path(out_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    processed_path = output_dir / "processed.jsonl"
+    processed_path.write_text("", encoding="utf-8")
     publisher = JsonLinesPublisher(output_dir)
     if write_processed:
         publisher.scans_path.write_text("", encoding="utf-8")
@@ -94,20 +97,30 @@ def run_replay(
     publisher.group_incidents_path.write_text("", encoding="utf-8")
 
     try:
-        for scan_index, timestamp, samples in _iter_scans(input_jsonl_path):
-            service.scan_index = scan_index
-            processed, incident_events, group_events = (
-                service.process_scan_samples(samples, timestamp=timestamp)
-            )
-
+        with ExitStack() as stack:
+            processed_handle = None
             if write_processed:
-                publisher.publish_processed(timestamp, processed)
-            if incident_events:
-                ordered_incidents = sorted(incident_events, key=_incident_sort_key)
-                publisher.publish_incidents(ordered_incidents)
-            if group_events:
-                ordered_groups = sorted(group_events, key=_group_incident_sort_key)
-                publisher.publish_group_incidents(ordered_groups)
+                processed_handle = stack.enter_context(
+                    processed_path.open("a", encoding="utf-8")
+                )
+            for scan_index, timestamp, samples in _iter_scans(input_jsonl_path):
+                service.scan_index = scan_index
+                processed, incident_events, group_events = (
+                    service.process_scan_samples(samples, timestamp=timestamp)
+                )
+
+                if write_processed:
+                    publisher.publish_processed(timestamp, processed)
+                    processed_rows = _build_processed_rows(timestamp, processed)
+                    for row in processed_rows:
+                        processed_handle.write(json.dumps(row, sort_keys=True))
+                        processed_handle.write("\n")
+                if incident_events:
+                    ordered_incidents = sorted(incident_events, key=_incident_sort_key)
+                    publisher.publish_incidents(ordered_incidents)
+                if group_events:
+                    ordered_groups = sorted(group_events, key=_group_incident_sort_key)
+                    publisher.publish_group_incidents(ordered_groups)
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid JSON in replay input: {exc}") from exc
 
