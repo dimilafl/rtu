@@ -141,22 +141,26 @@ class PLCScanAdapter:
         # Build scan result
         scan_result = {
             "scan_number": self.scan_number,
-            "status": status,
-            "error": error,
             "timestamp": scan_start,
             "scan_duration": scan_duration,
             "actual_interval": actual_interval,
             "target_interval": self.scan_interval,
             "timing_error": actual_interval - self.scan_interval,
-            "utilization": utilization,
-            "overrun": overrun,
-            "overruns": overruns,
             "processed_signals": {
                 sig_id: sig.to_dict()
                 for sig_id, sig in processed_signals.items()
             },
-            "signal_count": len(processed_signals)
+            "signal_count": len(processed_signals),
         }
+        scan_result.update(
+            {
+                "status": status,
+                "error": error,
+                "utilization": utilization,
+                "overrun": overrun,
+                "overruns": overruns,
+            }
+        )
 
         # Post-scan callback
         if self.post_scan_callback:

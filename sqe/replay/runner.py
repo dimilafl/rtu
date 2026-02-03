@@ -109,9 +109,11 @@ def run_replay(
             if write_processed:
                 publisher.publish_processed(timestamp, processed)
                 if processed_handle:
-                    for row in _build_processed_rows(timestamp, processed):
-                        processed_handle.write(json.dumps(row, sort_keys=True))
-                        processed_handle.write("\n")
+                    _write_processed_jsonl(
+                        processed_handle,
+                        timestamp,
+                        processed,
+                    )
             if incident_events:
                 ordered_incidents = sorted(incident_events, key=_incident_sort_key)
                 publisher.publish_incidents(ordered_incidents)
@@ -196,6 +198,16 @@ def _build_processed_rows(
             }
         )
     return rows
+
+
+def _write_processed_jsonl(
+    handle: Any,
+    scan_timestamp: float,
+    processed: Dict[str, ProcessedSignal],
+) -> None:
+    for row in _build_processed_rows(scan_timestamp, processed):
+        handle.write(json.dumps(row, sort_keys=True))
+        handle.write("\n")
 
 
 def _build_incident_rows(events: List[IncidentEvent]) -> List[Dict[str, Any]]:
