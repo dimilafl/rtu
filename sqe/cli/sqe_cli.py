@@ -759,6 +759,46 @@ def main():
         help='Optional path to write metrics JSON output'
     )
 
+    # Offline tuning command
+    tuning_parser = subparsers.add_parser(
+        'offline-tuning',
+        help='Run offline tuning sweeps for incident policy and SQI'
+    )
+    tuning_parser.add_argument(
+        '--replay-input',
+        required=True,
+        help='Path to replay input JSONL'
+    )
+    tuning_parser.add_argument(
+        '--labels',
+        required=True,
+        help='Path to incident labels YAML/JSON'
+    )
+    tuning_parser.add_argument(
+        '--sweep-config',
+        required=True,
+        help='Path to sweep config YAML'
+    )
+    tuning_parser.add_argument(
+        '--out-dir',
+        required=True,
+        help='Directory to store sweep outputs'
+    )
+    tuning_parser.add_argument(
+        '--base-config',
+        help='Optional base config YAML to override defaults'
+    )
+    tuning_parser.add_argument(
+        '--groups-config',
+        help='Optional groups config YAML for group incidents'
+    )
+    tuning_parser.add_argument(
+        '--mode',
+        choices=['incident_policy', 'sqi', 'all'],
+        default='all',
+        help='Which sweep to run (default: all)'
+    )
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -779,6 +819,10 @@ def main():
         return replay_command(args)
     elif args.command == 'eval':
         return eval_command(args)
+    elif args.command == 'offline-tuning':
+        from sqe.tools.offline_tuning import run_offline_tuning
+
+        return run_offline_tuning(args)
     else:
         parser.print_help()
         return 1
