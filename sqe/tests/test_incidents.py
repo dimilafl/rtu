@@ -8,6 +8,7 @@ from sqe.core.incidents import (
     IncidentEngine,
     IncidentEventType,
     IncidentPolicy,
+    IncidentSeverity,
 )
 from sqe.ops.service import RealtimeQualityService
 
@@ -165,6 +166,149 @@ def test_incident_resolves_after_recovery_persistence():
     assert events[0].event_type == IncidentEventType.RESOLVED
 
 
+def test_incident_threshold_hysteresis_and_persistence_boundaries():
+    policy = build_policy(start_persistence=2, end_persistence=2)
+    engine = IncidentEngine(policy)
+    components = {
+        "noise": 80,
+        "drift": 80,
+        "spikes": 80,
+        "oscillation": 80,
+        "missing": 80,
+        "stale": 100,
+        "step": 100,
+        "plausibility": 100,
+    }
+
+    events = engine.update_scan(
+        scan_index=0,
+        timestamp=1.0,
+        processed_signals={
+            "sig": make_processed("sig", 1.0, 55, components)
+        },
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    assert events == []
+
+    events = engine.update_scan(
+        scan_index=1,
+        timestamp=2.0,
+        processed_signals={
+            "sig": make_processed("sig", 2.0, 50, components)
+        },
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    assert events == []
+
+    events = engine.update_scan(
+        scan_index=2,
+        timestamp=3.0,
+        processed_signals={
+            "sig": make_processed("sig", 3.0, 49, components)
+        },
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    assert len(events) == 1
+    assert events[0].event_type == IncidentEventType.STARTED
+    assert events[0].incident.incident_id == "sig:1"
+
+    events = engine.update_scan(
+        scan_index=3,
+        timestamp=4.0,
+        processed_signals={
+            "sig": make_processed("sig", 4.0, 59, components)
+        },
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    assert events == []
+
+    events = engine.update_scan(
+        scan_index=4,
+        timestamp=5.0,
+        processed_signals={
+            "sig": make_processed("sig", 5.0, 60, components)
+        },
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    assert events == []
+
+    events = engine.update_scan(
+        scan_index=5,
+        timestamp=6.0,
+        processed_signals={
+            "sig": make_processed("sig", 6.0, 61, components)
+        },
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    assert len(events) == 1
+    assert events[0].event_type == IncidentEventType.RESOLVED
+    assert events[0].incident.incident_id == "sig:1"
+
+
+def test_incident_updates_on_cause_and_severity_change():
+    policy = build_policy(start_persistence=1)
+    engine = IncidentEngine(policy)
+    components_drift = {
+        "noise": 80,
+        "drift": 60,
+        "spikes": 90,
+        "oscillation": 90,
+        "missing": 90,
+        "stale": 100,
+        "step": 100,
+        "plausibility": 100,
+    }
+    components_noise = {
+        "noise": 60,
+        "drift": 90,
+        "spikes": 90,
+        "oscillation": 90,
+        "missing": 90,
+        "stale": 100,
+        "step": 100,
+        "plausibility": 100,
+    }
+
+    events = engine.update_scan(
+        scan_index=0,
+        timestamp=1.0,
+        processed_signals={
+            "sig": make_processed("sig", 1.0, 40, components_drift)
+        },
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    assert len(events) == 1
+    assert events[0].event_type == IncidentEventType.STARTED
+    assert events[0].incident.incident_id == "sig:0"
+    assert events[0].incident.cause == IncidentCause.DRIFT
+
+    events = engine.update_scan(
+        scan_index=1,
+        timestamp=2.0,
+        processed_signals={
+            "sig": make_processed("sig", 2.0, 40, components_noise)
+        },
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    assert len(events) == 1
+    assert events[0].event_type == IncidentEventType.UPDATED
+    assert events[0].incident.incident_id == "sig:0"
+    assert events[0].incident.cause == IncidentCause.NOISE
+
+    events = engine.update_scan(
+        scan_index=2,
+        timestamp=3.0,
+        processed_signals={
+            "sig": make_processed("sig", 3.0, 20, components_noise)
+        },
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    assert len(events) == 1
+    assert events[0].event_type == IncidentEventType.UPDATED
+    assert events[0].incident.incident_id == "sig:0"
+    assert events[0].incident.severity == IncidentSeverity.CRITICAL
+
+
 def test_cause_selection_uses_lowest_component_score():
     policy = build_policy(start_persistence=1)
     engine = IncidentEngine(policy)
@@ -214,11 +358,11 @@ def test_realtime_service_process_scan_returns_incidents():
     incident_engine = IncidentEngine(policy)
     service = RealtimeQualityService(engine, incident_engine)
 
-    processed, events, group_events = service.process_scan(
+    processed_scan, events, group_events = service.process_scan(
         {"sig": None}, timestamp=1.0
     )
 
-    assert processed == {}
+    assert processed_scan.processed_signals == {}
     assert len(events) == 1
     assert group_events == []
     assert service.scan_index == 1

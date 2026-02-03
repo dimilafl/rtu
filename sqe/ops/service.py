@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqe.core.engine import ProcessedSignal, SignalQualityEngine
@@ -11,6 +12,12 @@ from sqe.core.incidents import IncidentEngine, IncidentEvent
 from sqe.core.group_incidents import GroupIncidentEngine, GroupIncidentEvent
 from sqe.core.grouping import GroupResolver
 from sqe.core.sample import Sample
+
+
+@dataclass(frozen=True)
+class ProcessedScan:
+    processed_signals: Dict[str, ProcessedSignal]
+    suppression_stats: Optional[Dict[str, int]] = None
 
 
 class RealtimeQualityService:
@@ -37,11 +44,7 @@ class RealtimeQualityService:
         self,
         signals: Dict[str, Optional[float]],
         timestamp: Optional[float] = None,
-    ) -> Tuple[
-        Dict[str, ProcessedSignal],
-        List[IncidentEvent],
-        List[GroupIncidentEvent],
-    ]:
+    ) -> Tuple[ProcessedScan, List[IncidentEvent], List[GroupIncidentEvent]]:
         if timestamp is None:
             timestamp = time.time()
 
@@ -83,13 +86,14 @@ class RealtimeQualityService:
                 timestamp=timestamp,
                 group_id_to_member_status=group_id_to_member_status,
             )
+        suppression_stats: Optional[Dict[str, int]] = None
         if self.event_filter and self.event_filter_policy:
             active_group_incidents = (
                 self.group_incident_engine.get_active_incidents()
                 if self.group_incident_engine
                 else {}
             )
-            events, _ = self.event_filter.filter_events(
+            events, stats = self.event_filter.filter_events(
                 scan_index=self.scan_index,
                 timestamp=timestamp,
                 signal_events=events,
@@ -97,18 +101,16 @@ class RealtimeQualityService:
                 active_group_incidents=active_group_incidents,
                 signal_id_to_group_id=signal_id_to_group_id,
             )
+            if stats:
+                suppression_stats = stats
         self.scan_index += 1
-        return processed, events, group_events
+        return ProcessedScan(processed, suppression_stats), events, group_events
 
     def process_scan_samples(
         self,
         samples: Dict[str, Sample],
         timestamp: Optional[float] = None,
-    ) -> Tuple[
-        Dict[str, ProcessedSignal],
-        List[IncidentEvent],
-        List[GroupIncidentEvent],
-    ]:
+    ) -> Tuple[ProcessedScan, List[IncidentEvent], List[GroupIncidentEvent]]:
         if timestamp is None:
             timestamp = time.time()
 
@@ -152,13 +154,14 @@ class RealtimeQualityService:
                 timestamp=timestamp,
                 group_id_to_member_status=group_id_to_member_status,
             )
+        suppression_stats: Optional[Dict[str, int]] = None
         if self.event_filter and self.event_filter_policy:
             active_group_incidents = (
                 self.group_incident_engine.get_active_incidents()
                 if self.group_incident_engine
                 else {}
             )
-            events, _ = self.event_filter.filter_events(
+            events, stats = self.event_filter.filter_events(
                 scan_index=self.scan_index,
                 timestamp=timestamp,
                 signal_events=events,
@@ -166,5 +169,7 @@ class RealtimeQualityService:
                 active_group_incidents=active_group_incidents,
                 signal_id_to_group_id=signal_id_to_group_id,
             )
+            if stats:
+                suppression_stats = stats
         self.scan_index += 1
-        return processed, events, group_events
+        return ProcessedScan(processed, suppression_stats), events, group_events
