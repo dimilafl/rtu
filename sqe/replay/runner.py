@@ -25,6 +25,7 @@ from sqe.core.group_incidents import GroupIncidentEngine, GroupIncidentEvent
 from sqe.core.grouping import GroupResolver
 from sqe.core.incidents import IncidentEngine, IncidentEvent
 from sqe.core.sample import Sample, parse_sample
+from sqe.integration.publisher import JsonLinesPublisher
 from sqe.replay.schema import validate_scan_record
 from sqe.ops.service import RealtimeQualityService
 
@@ -86,19 +87,11 @@ def run_replay(
 
     output_dir = Path(out_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    processed_path = output_dir / "processed.jsonl"
-    incidents_path = output_dir / "incidents.jsonl"
-    group_incidents_path = output_dir / "group_incidents.jsonl"
+    publisher = JsonLinesPublisher(output_dir)
     if write_processed:
-        processed_path.write_text("", encoding="utf-8")
-    incidents_path.write_text("", encoding="utf-8")
-    group_incidents_path.write_text("", encoding="utf-8")
-
-    processed_handle = (
-        processed_path.open("a", encoding="utf-8") if write_processed else None
-    )
-    incidents_handle = incidents_path.open("a", encoding="utf-8")
-    group_incidents_handle = group_incidents_path.open("a", encoding="utf-8")
+        publisher.scans_path.write_text("", encoding="utf-8")
+    publisher.incidents_path.write_text("", encoding="utf-8")
+    publisher.group_incidents_path.write_text("", encoding="utf-8")
 
     try:
         for scan_index, timestamp, samples in _iter_scans(input_jsonl_path):
@@ -107,25 +100,16 @@ def run_replay(
                 service.process_scan_samples(samples, timestamp=timestamp)
             )
 
-            if processed_handle:
-                for row in _build_processed_rows(timestamp, processed):
-                    processed_handle.write(json.dumps(row, sort_keys=True))
-                    processed_handle.write("\n")
-
-            for row in _build_incident_rows(incident_events):
-                incidents_handle.write(json.dumps(row, sort_keys=True))
-                incidents_handle.write("\n")
-
-            for row in _build_group_incident_rows(group_events):
-                group_incidents_handle.write(json.dumps(row, sort_keys=True))
-                group_incidents_handle.write("\n")
+            if write_processed:
+                publisher.publish_processed(timestamp, processed)
+            if incident_events:
+                ordered_incidents = sorted(incident_events, key=_incident_sort_key)
+                publisher.publish_incidents(ordered_incidents)
+            if group_events:
+                ordered_groups = sorted(group_events, key=_group_incident_sort_key)
+                publisher.publish_group_incidents(ordered_groups)
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid JSON in replay input: {exc}") from exc
-    finally:
-        if processed_handle:
-            processed_handle.close()
-        incidents_handle.close()
-        group_incidents_handle.close()
 
 
 def _scan_signal_ids(input_jsonl_path: str) -> List[str]:
