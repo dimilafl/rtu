@@ -165,6 +165,7 @@ sqe/
 - **[DSP Principles](sqe/docs/dsp_principles.md)** - Mathematical foundations
 - **[Integration Guide](sqe/docs/integration_guide.md)** - How to integrate with existing systems
 - **[Quality Incidents](sqe/docs/incidents.md)** - Incident lifecycle and policy
+- **[Offline tuning pipeline](sqe/docs/offline_tuning.md)** - Replay-based tuning workflow
 - **[SQI Definition](sqe/docs/sqi_definition.md)** - Signal Quality Index explained
 
 ### Examples
