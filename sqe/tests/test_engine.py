@@ -9,6 +9,7 @@ from sqe.core.engine import (
     SignalConfig,
     ProcessedSignal
 )
+from sqe.core.sample import Sample
 
 
 class TestSignalConfig:
@@ -218,6 +219,50 @@ class TestSignalQualityEngine:
         assert len(results) == 2
         assert "sig1" in results
         assert "sig2" in results
+
+    def test_update_samples_scan_count_and_baseline_cache(self):
+        """Ensure update_samples increments scan_count and resets cache per scan."""
+        engine = SignalQualityEngine()
+        engine.register_signal("sig1")
+        engine.register_signal("sig2")
+
+        cache_ids = []
+        for processor in engine.processors.values():
+            original_update = processor.spike_detector.update
+
+            def wrapped_update(
+                x,
+                *,
+                signal_id=None,
+                baseline_stats_cache=None,
+                _orig=original_update,
+            ):
+                cache_ids.append(id(baseline_stats_cache))
+                return _orig(
+                    x,
+                    signal_id=signal_id,
+                    baseline_stats_cache=baseline_stats_cache,
+                )
+
+            processor.spike_detector.update = wrapped_update
+
+        samples = {
+            "sig1": Sample(value=10.0),
+            "sig2": Sample(value=12.0),
+        }
+
+        engine.update_samples(samples, timestamp=1.0)
+        assert engine.scan_count == 1
+        assert len(cache_ids) == 2
+        first_scan_ids = set(cache_ids)
+        assert len(first_scan_ids) == 1
+
+        engine.update_samples(samples, timestamp=2.0)
+        assert engine.scan_count == 2
+        assert len(cache_ids) == 4
+        second_scan_ids = set(cache_ids[2:])
+        assert len(second_scan_ids) == 1
+        assert first_scan_ids.isdisjoint(second_scan_ids)
 
     def test_auto_registration(self):
         """Test automatic signal registration."""

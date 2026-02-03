@@ -560,8 +560,9 @@ class SignalQualityEngine:
         signal_ids = set(signals.keys())
         if self.treat_missing_signals_as_none:
             signal_ids |= set(self.processors.keys())
+        ordered_signal_ids = sorted(signal_ids)
 
-        for signal_id in signal_ids:
+        for signal_id in ordered_signal_ids:
             if signal_id not in self.processors:
                 if not self.auto_register:
                     raise ValueError(f"Signal {signal_id} not registered")
@@ -628,8 +629,9 @@ class SignalQualityEngine:
         signal_ids = set(samples.keys())
         if self.treat_missing_signals_as_none:
             signal_ids |= set(self.processors.keys())
+        ordered_signal_ids = sorted(signal_ids)
 
-        for signal_id in signal_ids:
+        for signal_id in ordered_signal_ids:
             if signal_id not in self.processors:
                 if not self.auto_register:
                     raise ValueError(f"Signal {signal_id} not registered")

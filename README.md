@@ -107,6 +107,9 @@ sqe simulate --duration 1000 --noise 1.5 --plot
 # Generate incident events
 sqe incidents --signal-file data.csv --out incidents.jsonl
 
+# Deterministic replay (writes scans.jsonl + incidents.jsonl)
+sqe replay --in scans.jsonl --config cfg.yaml --out out_dir
+
 # Show version
 sqe version
 ```
