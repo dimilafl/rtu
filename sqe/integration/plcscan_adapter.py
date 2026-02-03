@@ -107,6 +107,13 @@ class PLCScanAdapter:
             actual_interval = self.scan_interval
 
         self.last_scan_time = scan_start
+        utilization = (
+            scan_duration / self.scan_interval if self.scan_interval > 0 else 0.0
+        )
+        overrun = scan_duration > self.scan_interval
+        overruns = sum(
+            1 for duration in self.scan_durations if duration > self.scan_interval
+        )
 
         # Build scan result
         scan_result = {
@@ -116,6 +123,9 @@ class PLCScanAdapter:
             "actual_interval": actual_interval,
             "target_interval": self.scan_interval,
             "timing_error": actual_interval - self.scan_interval,
+            "utilization": utilization,
+            "overrun": overrun,
+            "overruns": overruns,
             "processed_signals": {
                 sig_id: sig.to_dict()
                 for sig_id, sig in processed_signals.items()

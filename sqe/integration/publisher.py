@@ -50,7 +50,7 @@ class JsonLinesPublisher:
     ) -> None:
         rows = [
             self._build_scan_row(scan_timestamp, signal_id, signal)
-            for signal_id, signal in processed.items()
+            for signal_id, signal in sorted(processed.items())
         ]
         self._append_rows(self.scans_path, rows)
 
