@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Protocol, Union
+from typing import Any, Dict, Iterable, List, Optional, Protocol, Union
 
 from sqe.core.engine import ProcessedSignal
 from sqe.core.incidents import IncidentEvent, IncidentSeverity
@@ -18,6 +18,7 @@ class QualityPublisher(Protocol):
         self,
         scan_timestamp: float,
         processed: Dict[str, ProcessedSignal],
+        suppression_stats: Optional[Dict[str, int]] = None,
     ) -> None:
         """Publish processed scan results."""
 
@@ -47,9 +48,12 @@ class JsonLinesPublisher:
         self,
         scan_timestamp: float,
         processed: Dict[str, ProcessedSignal],
+        suppression_stats: Optional[Dict[str, int]] = None,
     ) -> None:
         rows = [
-            self._build_scan_row(scan_timestamp, signal_id, signal)
+            self._build_scan_row(
+                scan_timestamp, signal_id, signal, suppression_stats
+            )
             for signal_id, signal in sorted(processed.items())
         ]
         self._append_rows(self.scans_path, rows)
@@ -76,10 +80,11 @@ class JsonLinesPublisher:
         scan_timestamp: float,
         signal_id: str,
         signal: ProcessedSignal,
+        suppression_stats: Optional[Dict[str, int]] = None,
     ) -> Dict:
         dominant_cause = self._dominant_cause(signal.sqi_components)
         severity = self._severity_from_signal(signal)
-        return {
+        payload = {
             "scan_timestamp": scan_timestamp,
             "signal_id": signal_id,
             "timestamp": signal.timestamp,
@@ -92,6 +97,9 @@ class JsonLinesPublisher:
             "drift_alert": signal.drift_alert,
             "spike_alert": signal.spike_alert,
         }
+        if suppression_stats is not None:
+            payload["suppression_stats"] = suppression_stats
+        return payload
 
     @staticmethod
     def _dominant_cause(components: Dict[str, float]) -> str:
@@ -168,6 +176,7 @@ class OasysEnterprisePublisher:
         self,
         scan_timestamp: float,
         processed: Dict[str, ProcessedSignal],
+        suppression_stats: Optional[Dict[str, int]] = None,
     ) -> None:
         raise NotImplementedError(
             "Map processed SQI outputs to OASyS derived points here."
