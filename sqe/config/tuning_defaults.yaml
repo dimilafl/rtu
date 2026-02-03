@@ -1,0 +1,27 @@
+# Offline tuning sweep defaults for SQE
+
+gates:
+  detection_f1_min: 0.75
+  mean_time_to_detect_scans_max: 5
+  spam_ratio_max: 3.0
+
+incident_policy_sweep:
+  start_sqi_threshold: [45, 50, 55]
+  end_sqi_threshold: [55, 60, 65]
+  start_persistence_scans: [3, 5, 7]
+  end_persistence_scans: [8, 10, 12]
+  critical_sqi_threshold: [20, 25, 30]
+
+sqi_weight_sweep:
+  normalize_weights: true
+  weights:
+    noise: [0.2, 0.25, 0.3]
+    drift: [0.2, 0.25, 0.3]
+    spikes: [0.15, 0.2, 0.25]
+    oscillation: [0.1, 0.15, 0.2]
+    missing: [0.1, 0.15, 0.2]
+  thresholds:
+    noise: [0.08, 0.1, 0.12]
+    drift: [0.8, 1.0, 1.2]
+    spike_frequency: [0.04, 0.05, 0.06]
+    oscillation: [0.25, 0.3, 0.35]
