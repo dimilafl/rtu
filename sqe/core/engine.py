@@ -569,7 +569,7 @@ class SignalQualityEngine:
         """
         self.scan_count += 1
         current_time = time.time()
-        scan_start = time.perf_counter()
+        scan_start = time.perf_counter() if self.compute_budget_s else None
 
         # Track scan timing
         if self.last_scan_time is not None:
@@ -633,8 +633,9 @@ class SignalQualityEngine:
                     )
                 results[signal_id] = processed
 
-        scan_duration = time.perf_counter() - scan_start
-        self._update_load_shedding(scan_duration)
+        if scan_start is not None:
+            scan_duration = time.perf_counter() - scan_start
+            self._update_load_shedding(scan_duration)
         return results
 
     def update_samples(
@@ -645,7 +646,7 @@ class SignalQualityEngine:
         """Process one scan cycle for all signals with sample metadata."""
         self.scan_count += 1
         current_time = time.time()
-        scan_start = time.perf_counter()
+        scan_start = time.perf_counter() if self.compute_budget_s else None
 
         if self.last_scan_time is not None:
             actual_interval = current_time - self.last_scan_time
@@ -712,8 +713,9 @@ class SignalQualityEngine:
                     )
                 results[signal_id] = processed
 
-        scan_duration = time.perf_counter() - scan_start
-        self._update_load_shedding(scan_duration)
+        if scan_start is not None:
+            scan_duration = time.perf_counter() - scan_start
+            self._update_load_shedding(scan_duration)
         return results
 
     def _update_load_shedding(self, scan_duration: float) -> None:
