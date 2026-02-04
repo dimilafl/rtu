@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Protocol, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Union
 
 from sqe.core.engine import ProcessedSignal
 from sqe.core.incidents import IncidentEvent, IncidentSeverity
@@ -172,22 +172,145 @@ class OasysEnterprisePublisher:
       - incident resolved
     """
 
+    ALERT_LEVEL_CODES = {
+        "none": 0,
+        "warning": 1,
+        "critical": 2,
+    }
+    INCIDENT_EVENT_CODES = {
+        "started": "START",
+        "updated": "UPDATE",
+        "resolved": "RESOLVE",
+    }
+    SEVERITY_CODES = {
+        IncidentSeverity.WARNING: 1,
+        IncidentSeverity.CRITICAL: 2,
+    }
+
+    def __init__(
+        self,
+        send_point: Optional[Callable[[Dict[str, Any]], None]] = None,
+        send_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+        send_group_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+    ) -> None:
+        self._send_point = send_point
+        self._send_event = send_event
+        self._send_group_event = send_group_event
+        self.published_points: List[Dict[str, Any]] = []
+        self.published_events: List[Dict[str, Any]] = []
+        self.published_group_events: List[Dict[str, Any]] = []
+
     def publish_processed(
         self,
         scan_timestamp: float,
         processed: Dict[str, ProcessedSignal],
         suppression_stats: Optional[Dict[str, int]] = None,
     ) -> None:
-        raise NotImplementedError(
-            "Map processed SQI outputs to OASyS derived points here."
-        )
+        rows = [
+            self._build_sqi_point(
+                scan_timestamp, signal_id, signal, suppression_stats
+            )
+            for signal_id, signal in sorted(processed.items())
+        ]
+        for row in rows:
+            self._emit_point(row)
 
     def publish_incidents(self, events: List[IncidentEvent]) -> None:
-        raise NotImplementedError(
-            "Map incident events to OASyS Enterprise event stream here."
-        )
+        rows = [self._build_incident_event(event) for event in events]
+        for row in rows:
+            self._emit_event(row)
 
     def publish_group_incidents(self, events: List[GroupIncidentEvent]) -> None:
-        raise NotImplementedError(
-            "Map group incident events to OASyS Enterprise event stream here."
-        )
+        rows = [self._build_group_incident_event(event) for event in events]
+        for row in rows:
+            self._emit_group_event(row)
+
+    def _emit_point(self, payload: Dict[str, Any]) -> None:
+        if self._send_point:
+            self._send_point(payload)
+        else:
+            self.published_points.append(payload)
+
+    def _emit_event(self, payload: Dict[str, Any]) -> None:
+        if self._send_event:
+            self._send_event(payload)
+        else:
+            self.published_events.append(payload)
+
+    def _emit_group_event(self, payload: Dict[str, Any]) -> None:
+        if self._send_group_event:
+            self._send_group_event(payload)
+        else:
+            self.published_group_events.append(payload)
+
+    def _build_sqi_point(
+        self,
+        scan_timestamp: float,
+        signal_id: str,
+        signal: ProcessedSignal,
+        suppression_stats: Optional[Dict[str, int]] = None,
+    ) -> Dict[str, Any]:
+        dominant_cause = JsonLinesPublisher._dominant_cause(signal.sqi_components)
+        severity_code = self.ALERT_LEVEL_CODES.get(signal.alert_level, 0)
+        payload = {
+            "type": "derived_point",
+            "tag": f"{signal_id}:SQI",
+            "scan_timestamp": scan_timestamp,
+            "timestamp": signal.timestamp,
+            "values": {
+                "sqi": signal.sqi,
+                "quality_class": signal.quality_class,
+                "dominant_cause": dominant_cause,
+                "severity_code": severity_code,
+                "alert_level": signal.alert_level,
+                "alert_flags": {
+                    "drift": signal.drift_alert,
+                    "spike": signal.spike_alert,
+                },
+            },
+        }
+        if suppression_stats is not None:
+            payload["suppression_stats"] = suppression_stats
+        return payload
+
+    def _build_incident_event(self, event: IncidentEvent) -> Dict[str, Any]:
+        incident = event.incident
+        return {
+            "type": "incident_event",
+            "event_code": self.INCIDENT_EVENT_CODES.get(
+                event.event_type.value, event.event_type.value.upper()
+            ),
+            "signal_id": incident.signal_id,
+            "incident_id": incident.incident_id,
+            "cause": incident.cause.value,
+            "severity_code": self.SEVERITY_CODES.get(incident.severity, 0),
+            "state_transition": event.event_type.value,
+            "timestamp": incident.last_timestamp,
+            "start_timestamp": incident.start_timestamp,
+            "end_timestamp": incident.end_timestamp,
+            "message": event.message,
+            "recommended_action": event.recommended_action,
+        }
+
+    def _build_group_incident_event(
+        self, event: GroupIncidentEvent
+    ) -> Dict[str, Any]:
+        incident = event.incident
+        return {
+            "type": "group_incident_event",
+            "event_code": self.INCIDENT_EVENT_CODES.get(
+                event.event_type.value, event.event_type.value.upper()
+            ),
+            "group_id": incident.group_id,
+            "group_incident_id": incident.group_incident_id,
+            "cause": incident.cause.value,
+            "severity_code": self.SEVERITY_CODES.get(incident.severity, 0),
+            "state_transition": event.event_type.value,
+            "timestamp": incident.last_timestamp,
+            "start_timestamp": incident.start_timestamp,
+            "end_timestamp": incident.end_timestamp,
+            "message": event.message,
+            "recommended_action": event.recommended_action,
+            "degraded_members": list(incident.degraded_members),
+            "details": dict(incident.details or {}),
+        }

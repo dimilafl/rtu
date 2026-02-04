@@ -6,7 +6,7 @@ Injects communication artifacts (jitter, dropouts, delays)
 and tracks missing samples for signal quality assessment.
 """
 
-from typing import Dict, Optional, List
+from typing import Any, Dict, Optional, List
 from dataclasses import dataclass
 import random
 import time
@@ -21,6 +21,15 @@ class CommsArtifact:
     dropout_probability: float = 0.0  # Probability of sample dropout (0-1)
     late_probability: float = 0.0     # Probability of late arrival (0-1)
     late_delay_ms: float = 0.0        # Delay for late samples (milliseconds)
+
+
+@dataclass(frozen=True)
+class CommsAdapterSettings:
+    """Settings for comms adapter defaults."""
+    track_jitter: bool = True
+    track_dropouts: bool = True
+    track_late_arrivals: bool = True
+    quality_monitor_window: int = 100
 
 
 @dataclass
@@ -44,7 +53,8 @@ class CommsAdapter:
     def __init__(
         self,
         engine: SignalQualityEngine,
-        artifact_config: Optional[CommsArtifact] = None
+        artifact_config: Optional[CommsArtifact] = None,
+        settings: Optional[CommsAdapterSettings] = None,
     ):
         """
         Initialize communications adapter.
@@ -55,6 +65,7 @@ class CommsAdapter:
         """
         self.engine = engine
         self.artifact_config = artifact_config or CommsArtifact()
+        self.settings = settings or CommsAdapterSettings()
 
         # Statistics tracking
         self.stats = CommsStats()
@@ -79,19 +90,25 @@ class CommsAdapter:
             self.stats.total_samples += 1
 
             # Apply dropout
-            if random.random() < self.artifact_config.dropout_probability:
+            if (
+                self.settings.track_dropouts
+                and random.random() < self.artifact_config.dropout_probability
+            ):
                 artifacted[signal_id] = None
                 self.stats.dropped_samples += 1
                 continue
 
             # Apply jitter (affects timing, tracked but not modified here)
-            if self.artifact_config.jitter_ms > 0:
+            if self.settings.track_jitter and self.artifact_config.jitter_ms > 0:
                 jitter = random.gauss(0, self.artifact_config.jitter_ms)
                 self.jitter_history.append(abs(jitter))
                 self.stats.jittered_samples += 1
 
             # Apply late arrival (for now, just track statistics)
-            if random.random() < self.artifact_config.late_probability:
+            if (
+                self.settings.track_late_arrivals
+                and random.random() < self.artifact_config.late_probability
+            ):
                 self.stats.late_samples += 1
                 # In real implementation, would delay sample delivery
 
@@ -149,6 +166,32 @@ class CommsAdapter:
         """
         self.artifact_config = config
 
+    def set_settings(self, settings: CommsAdapterSettings) -> None:
+        """Update comms adapter settings."""
+        self.settings = settings
+
+    @classmethod
+    def from_config(
+        cls,
+        engine: SignalQualityEngine,
+        config: Dict[str, Any],
+        artifact_config: Optional[CommsArtifact] = None,
+    ) -> "CommsAdapter":
+        """Construct adapter from merged configuration dictionary."""
+        integration = config.get("integration", {})
+        comms = integration.get("comms", {})
+        settings = CommsAdapterSettings(
+            track_jitter=bool(comms.get("track_jitter", True)),
+            track_dropouts=bool(comms.get("track_dropouts", True)),
+            track_late_arrivals=bool(comms.get("track_late_arrivals", True)),
+            quality_monitor_window=int(comms.get("quality_monitor_window", 100)),
+        )
+        return cls(
+            engine=engine,
+            artifact_config=artifact_config,
+            settings=settings,
+        )
+
     def get_stats(self) -> Dict:
         """
         Get communication statistics.
@@ -191,6 +234,16 @@ class CommsQualityMonitor:
         self.window_size = window_size
         self.dropout_history: List[float] = []
         self.latency_history: List[float] = []
+
+    @classmethod
+    def from_config(
+        cls,
+        config: Dict[str, Any],
+    ) -> "CommsQualityMonitor":
+        """Construct comms quality monitor from config defaults."""
+        integration = config.get("integration", {})
+        comms = integration.get("comms", {})
+        return cls(window_size=int(comms.get("quality_monitor_window", 100)))
 
     def update(self, comms_stats: Dict) -> Dict:
         """
