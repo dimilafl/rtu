@@ -114,6 +114,10 @@ performance:
   max_signals: 1000         # Maximum number of signals
   buffer_preallocation: true
   use_numpy: true           # Use numpy for calculations
+  compute_budget_ms: null   # Optional compute budget per signal scan (ms)
+  load_shed_p95_window: 50  # Window size for scan-duration p95
+  load_shed_oscillation_cadence: 3
+  load_shed_skip_fft: true
 
 engine:
   scan_interval: 0.1

@@ -20,6 +20,7 @@ from sqe.config.loader import (
     get_incident_policy,
     get_group_incident_policy,
     get_grouping_config,
+    get_performance_settings,
     load_config,
     load_groups_config,
 )
@@ -46,6 +47,7 @@ def run_replay(
     config = load_config(config_path)
     configure_logging(config)
     scan_interval = get_engine_scan_interval(config)
+    performance_settings = get_performance_settings(config)
     logging_settings = {
         "log_scan_timing": False,
         "log_quality_changes": False,
@@ -63,6 +65,12 @@ def run_replay(
         log_scan_timing=logging_settings["log_scan_timing"],
         log_quality_changes=logging_settings["log_quality_changes"],
         log_anomalies=logging_settings["log_anomalies"],
+        compute_budget_ms=performance_settings["compute_budget_ms"],
+        load_shed_p95_window=performance_settings["load_shed_p95_window"],
+        load_shed_oscillation_cadence=performance_settings[
+            "load_shed_oscillation_cadence"
+        ],
+        load_shed_skip_fft=performance_settings["load_shed_skip_fft"],
     )
 
     if not engine.auto_register:

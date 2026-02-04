@@ -131,6 +131,24 @@ def get_engine_max_signals(config: Dict[str, Any]) -> Optional[int]:
     return max_signals if max_signals > 0 else None
 
 
+def get_performance_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Get performance settings from config with defaults."""
+    performance = config.get("performance", {})
+    compute_budget_ms = performance.get("compute_budget_ms")
+    return {
+        "compute_budget_ms": (
+            float(compute_budget_ms) if compute_budget_ms is not None else None
+        ),
+        "load_shed_p95_window": int(performance.get("load_shed_p95_window", 50)),
+        "load_shed_oscillation_cadence": int(
+            performance.get("load_shed_oscillation_cadence", 3)
+        ),
+        "load_shed_skip_fft": bool(
+            performance.get("load_shed_skip_fft", True)
+        ),
+    }
+
+
 def get_logging_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     """Get logging settings from config with defaults."""
     logging_config = config.get("logging", {})
