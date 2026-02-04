@@ -3,7 +3,11 @@
 import json
 
 from sqe.core.event_filter import EventFilter, EventFilterPolicy
-from sqe.core.group_incidents import GroupIncident, GroupIncidentCause
+from sqe.core.group_incidents import (
+    GroupIncident,
+    GroupIncidentCause,
+    GroupIncidentEvent,
+)
 from sqe.core.incidents import (
     IncidentCause,
     IncidentEvent,
@@ -176,6 +180,72 @@ def test_suppression_stats_written_to_scans_jsonl(tmp_path):
         "suppressed_member_events_started": 2,
         "suppressed_member_events_updated": 0,
         "suppressed_member_events_resolved": 0,
+        "deferred_member_events": 2,
+        "reemitted_member_events": 0,
     }
     for scan in scans:
         assert scan["suppression_stats"] == expected_stats
+
+
+def test_event_filter_reemits_deferred_events_on_group_resolve():
+    policy = EventFilterPolicy(
+        suppress_member_events=True,
+        suppress_when_group_event_active=True,
+        suppress_group_causes=["comms"],
+        suppress_event_types=["started"],
+        allow_resolved_passthrough=False,
+        include_suppression_stats=True,
+    )
+    event_filter = EventFilter(policy)
+
+    incident_started = _build_incident_event(
+        event_type=IncidentEventType.STARTED
+    )
+
+    group_incident = GroupIncident(
+        group_incident_id="STATION_01:0",
+        group_id="STATION_01",
+        start_timestamp=1.0,
+        last_timestamp=1.0,
+        end_timestamp=None,
+        start_scan_index=0,
+        last_scan_index=0,
+        degraded_members=["STATION_01_AI_001"],
+        severity=IncidentSeverity.CRITICAL,
+        cause=GroupIncidentCause.COMMS,
+        details={},
+    )
+
+    filtered, stats = event_filter.filter_events(
+        scan_index=0,
+        timestamp=1.0,
+        signal_events=[incident_started],
+        group_events=[],
+        active_group_incidents={"STATION_01": group_incident},
+        signal_id_to_group_id={"STATION_01_AI_001": "STATION_01"},
+    )
+
+    assert filtered == []
+    assert stats["deferred_member_events"] == 1
+    assert stats["reemitted_member_events"] == 0
+
+    resolved_event = GroupIncidentEvent(
+        event_type=IncidentEventType.RESOLVED,
+        incident=group_incident,
+        message="resolved",
+        recommended_action="resolved",
+    )
+
+    filtered, stats = event_filter.filter_events(
+        scan_index=1,
+        timestamp=2.0,
+        signal_events=[],
+        group_events=[resolved_event],
+        active_group_incidents={},
+        signal_id_to_group_id={"STATION_01_AI_001": "STATION_01"},
+    )
+
+    assert [event.event_type for event in filtered] == [
+        IncidentEventType.STARTED
+    ]
+    assert stats["reemitted_member_events"] == 1

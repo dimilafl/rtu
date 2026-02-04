@@ -36,6 +36,20 @@ SQI weights and thresholds are defined in `sqe/config/defaults.yaml` under
 and thresholds independently, with an optional normalization step to keep the
 weight sum at 1.0 for explainability.
 
+## Signal churn assumptions
+
+Replay tuning should lock down missing-signal semantics so results are
+repeatable across runs:
+
+- `engine.treat_missing_signals_as_none`: whether missing registered signals
+  count as missing samples or are skipped.
+- `engine.unknown_signal_policy`: whether unknown signals are ignored or cause
+  errors when `auto_register` is disabled.
+- `engine.max_signals_policy`: how to handle caps if the replay includes more
+  signals than `performance.max_signals`.
+
+Set these explicitly in the base config so sweep results are deterministic.
+
 ## Running the pipeline
 
 Use the CLI command to run offline tuning:

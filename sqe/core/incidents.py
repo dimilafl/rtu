@@ -48,6 +48,7 @@ class IncidentPolicy:
     critical_sqi_threshold: float
     component_score_floor: float
     cause_priority: List[IncidentCause] = field(default_factory=list)
+    hard_fault_causes: List[IncidentCause] = field(default_factory=list)
     emit_update_on_cause_change: bool = True
     emit_update_on_severity_change: bool = True
 
@@ -353,11 +354,14 @@ class IncidentEngine:
         for name, score in processed.sqi_components.items():
             if score <= self.policy.component_score_floor:
                 cause = component_causes.get(name)
-                if cause:
+                if cause and self._is_cause_eligible(cause, processed):
                     candidates.append((cause, score))
 
         if not candidates:
-            if missing_score <= self.policy.component_score_floor:
+            if (
+                missing_score <= self.policy.component_score_floor
+                and self._is_cause_eligible(IncidentCause.MISSING, processed)
+            ):
                 return IncidentCause.MISSING
             return IncidentCause.UNKNOWN
 
@@ -368,6 +372,28 @@ class IncidentEngine:
             )
         )
         return candidates[0][0]
+
+    def _is_cause_eligible(
+        self,
+        cause: IncidentCause,
+        processed: ProcessedSignal,
+    ) -> bool:
+        if cause in self.policy.hard_fault_causes:
+            return True
+        component_name = {
+            IncidentCause.NOISE: "noise",
+            IncidentCause.DRIFT: "drift",
+            IncidentCause.SPIKES: "spikes",
+            IncidentCause.OSCILLATION: "oscillation",
+            IncidentCause.MISSING: "missing",
+            IncidentCause.STALE: "stale",
+            IncidentCause.STEP: "step",
+            IncidentCause.PLAUSIBILITY: "plausibility",
+        }.get(cause)
+        if component_name is None:
+            return True
+        weight = processed.sqi_weights.get(component_name, 0.0)
+        return weight > 0
 
     def _cause_priority_index(self, cause: IncidentCause) -> int:
         if cause in self._cause_priority:

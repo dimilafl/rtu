@@ -61,5 +61,8 @@ sqe eval --replay-out out_dir --labels labels.yaml --out-json metrics.json
 When station-level group incidents are active (e.g., comms dropouts), member
 incident start/update events may be suppressed based on the event filter policy.
 This reduces operator-facing spam while still preserving group incidents and
-resolved member events. The spam metrics (`starts_ratio`) highlight this change
-in the ratio of signal starts to group starts.
+resolved member events. Suppressed member events are deferred and replayed in a
+deterministic order once the group incident resolves, so audits can reconcile
+missed events without losing the suppression benefits. The spam metrics
+(`starts_ratio`) highlight this change in the ratio of signal starts to group
+starts.

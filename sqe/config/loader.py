@@ -105,6 +105,23 @@ def get_engine_auto_register(config: Dict[str, Any]) -> bool:
     return config.get("engine", {}).get("auto_register", True)
 
 
+def get_engine_treat_missing_signals_as_none(config: Dict[str, Any]) -> bool:
+    """Get missing signal handling policy."""
+    return bool(
+        config.get("engine", {}).get("treat_missing_signals_as_none", True)
+    )
+
+
+def get_engine_unknown_signal_policy(config: Dict[str, Any]) -> str:
+    """Get policy for unknown signals."""
+    return str(config.get("engine", {}).get("unknown_signal_policy", "error"))
+
+
+def get_engine_max_signals_policy(config: Dict[str, Any]) -> str:
+    """Get policy for max signal limit handling."""
+    return str(config.get("engine", {}).get("max_signals_policy", "error"))
+
+
 def get_engine_max_signals(config: Dict[str, Any]) -> Optional[int]:
     """Get maximum signal count from config with fallback to default."""
     max_signals = config.get("performance", {}).get("max_signals", 1000)
@@ -309,6 +326,22 @@ def get_incident_policy(config: Dict[str, Any]) -> IncidentPolicy:
             IncidentCause.UNKNOWN,
         ]
 
+    hard_fault_config = incidents.get("hard_fault_causes")
+    if hard_fault_config is None:
+        hard_fault_causes = [
+            IncidentCause.MISSING,
+            IncidentCause.STALE,
+            IncidentCause.STEP,
+            IncidentCause.PLAUSIBILITY,
+        ]
+    else:
+        hard_fault_causes = []
+        for name in hard_fault_config:
+            try:
+                hard_fault_causes.append(IncidentCause(str(name).lower()))
+            except ValueError as exc:
+                raise ValueError(f"Unknown hard fault cause: {name}") from exc
+
     return IncidentPolicy(
         start_sqi_threshold=start_sqi_threshold,
         end_sqi_threshold=end_sqi_threshold,
@@ -317,6 +350,7 @@ def get_incident_policy(config: Dict[str, Any]) -> IncidentPolicy:
         critical_sqi_threshold=critical_sqi_threshold,
         component_score_floor=component_score_floor,
         cause_priority=priority,
+        hard_fault_causes=hard_fault_causes,
         emit_update_on_cause_change=bool(
             incidents.get("emit_update_on_cause_change", True)
         ),

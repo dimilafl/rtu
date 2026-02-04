@@ -46,6 +46,7 @@ class RealtimeQualityService:
         self,
         signals: Dict[str, Optional[float]],
         timestamp: Optional[float] = None,
+        comms_health_by_signal: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Tuple[ProcessedScan, List[IncidentEvent], List[GroupIncidentEvent]]:
         if timestamp is None:
             timestamp = time.time()
@@ -81,7 +82,10 @@ class RealtimeQualityService:
                 group_id = self.group_resolver.resolve_group_id(signal_id)
                 if group_id is None:
                     continue
-                group_id_to_member_status.setdefault(group_id, {})[signal_id] = status
+                enriched = dict(status)
+                if comms_health_by_signal and signal_id in comms_health_by_signal:
+                    enriched["comms"] = comms_health_by_signal[signal_id]
+                group_id_to_member_status.setdefault(group_id, {})[signal_id] = enriched
                 signal_id_to_group_id[signal_id] = group_id
             group_events = self.group_incident_engine.update_scan(
                 scan_index=self.scan_index,
@@ -112,6 +116,7 @@ class RealtimeQualityService:
         self,
         samples: Dict[str, Sample],
         timestamp: Optional[float] = None,
+        comms_health_by_signal: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Tuple[ProcessedScan, List[IncidentEvent], List[GroupIncidentEvent]]:
         if timestamp is None:
             timestamp = time.time()
@@ -147,9 +152,12 @@ class RealtimeQualityService:
                 group_id = self.group_resolver.resolve_group_id(signal_id)
                 if group_id is None:
                     continue
+                enriched = dict(status)
+                if comms_health_by_signal and signal_id in comms_health_by_signal:
+                    enriched["comms"] = comms_health_by_signal[signal_id]
                 group_id_to_member_status.setdefault(group_id, {})[
                     signal_id
-                ] = status
+                ] = enriched
                 signal_id_to_group_id[signal_id] = group_id
             group_events = self.group_incident_engine.update_scan(
                 scan_index=self.scan_index,

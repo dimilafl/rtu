@@ -323,7 +323,9 @@ print(f"Average scan time: {perf['mean_duration']*1000:.2f}ms")
 
 ### Overview
 
-The Comms Front-End introduces communication artifacts. SQE tracks these and adjusts quality metrics.
+The Comms Front-End provides transport telemetry (poll success, RTT, jitter, and
+dropout streaks). SQE ingests these metrics to drive comms health reporting and
+group incident causality.
 
 ### Integration Steps
 
@@ -331,45 +333,56 @@ The Comms Front-End introduces communication artifacts. SQE tracks these and adj
 
 ```python
 from sqe.core.engine import SignalQualityEngine
-from sqe.integration.comms_adapter import CommsAdapter, CommsArtifact
+from sqe.integration.comms_adapter import (
+    CommsAdapter,
+    CommsTelemetry,
+    CommsQualityMonitor,
+)
 ```
 
-#### 2. Configure Communication Artifacts
+#### 2. Provide Communication Telemetry
 
 ```python
-# Define communication characteristics
-artifact_config = CommsArtifact(
-    jitter_ms=5.0,              # 5ms timing jitter
-    dropout_probability=0.02,    # 2% packet loss
-    late_probability=0.01,       # 1% late arrivals
-    late_delay_ms=50.0          # 50ms delay when late
-)
-
 # Initialize
 engine = SignalQualityEngine(scan_interval=0.1)
-comms_adapter = CommsAdapter(engine, artifact_config)
+comms_adapter = CommsAdapter(engine)
 ```
 
-#### 3. Process with Communication Effects
+#### 3. Process with Communication Telemetry
 
 ```python
 # In your communication receive loop
-def process_received_data(raw_signals):
-    # Inject communication artifacts
-    result = comms_adapter.process_scan(raw_signals)
+def process_received_data(raw_signals, comms_metrics):
+    telemetry = {
+        signal_id: CommsTelemetry(
+            poll_success=metrics["poll_success"],
+            rtt_ms=metrics["rtt_ms"],
+            jitter_ms=metrics["jitter_ms"],
+            dropout_streak=metrics.get("dropout_streak", 0),
+        )
+        for signal_id, metrics in comms_metrics.items()
+    }
+    result = comms_adapter.process_scan(
+        raw_signals, telemetry_by_signal=telemetry
+    )
 
     # Get processed signals
     processed_signals = result["processed_signals"]
 
     # Get communication statistics
     comms_stats = result["comms_stats"]
+    comms_health = result["comms_health_by_signal"]
 
     # Check communication quality
-    if comms_stats["dropout_rate"] > 0.05:  # >5% dropout
+    if comms_stats["poll_failure_rate"] > 0.05:  # >5% failure
         print("WARNING: High packet loss")
 
-    return processed_signals, comms_stats
+    return processed_signals, comms_stats, comms_health
 ```
+
+When using group incidents, pass `comms_health_by_signal` into
+`RealtimeQualityService.process_scan(...)` so group causes are driven by
+transport telemetry rather than missing ratios.
 
 #### 4. Monitor Communication Quality
 
@@ -377,24 +390,25 @@ def process_received_data(raw_signals):
 # Get cumulative statistics
 stats = comms_adapter.get_stats()
 
-print(f"Total Samples: {stats['total_samples']}")
-print(f"Dropped: {stats['dropped_samples']} ({stats['dropout_rate']:.1%})")
+print(f"Total Polls: {stats['total_polls']}")
+print(f"Failed: {stats['failed_polls']} ({stats['poll_failure_rate']:.1%})")
 print(f"Late: {stats['late_samples']} ({stats['late_rate']:.1%})")
+print(f"Avg RTT: {stats['average_rtt_ms']:.2f}ms")
 print(f"Avg Jitter: {stats['average_jitter_ms']:.2f}ms")
 ```
 
 #### 5. Use Communication Quality Monitor
 
 ```python
-from sqe.integration.comms_adapter import CommsQualityMonitor
-
 # Initialize monitor
 monitor = CommsQualityMonitor(window_size=100)
 
 # Update periodically
 while running:
     # Process data
-    result = comms_adapter.process_scan(signals)
+    result = comms_adapter.process_scan(
+        signals, telemetry_by_signal=current_telemetry
+    )
     comms_stats = result["comms_stats"]
 
     # Update monitor
@@ -402,7 +416,7 @@ while running:
 
     print(f"Comms Quality Score: {quality['quality_score']:.1f}")
     print(f"Quality Class: {quality['quality_class']}")
-    print(f"Dropout Trend: {quality['dropout_trend']}")
+    print(f"Poll Failure Trend: {quality['dropout_trend']}")
     print(f"Latency Trend: {quality['latency_trend']}")
 ```
 
@@ -414,31 +428,34 @@ while running:
 from sqe.core.engine import SignalQualityEngine
 from sqe.integration.comms_adapter import (
     CommsAdapter,
-    CommsArtifact,
+    CommsTelemetry,
     CommsQualityMonitor
 )
 
 # Initialize
 engine = SignalQualityEngine(scan_interval=0.1)
 
-# Configure realistic comms artifacts
-artifact_config = CommsArtifact(
-    jitter_ms=3.0,
-    dropout_probability=0.01,
-    late_probability=0.005,
-    late_delay_ms=30.0
-)
-
-comms_adapter = CommsAdapter(engine, artifact_config)
+comms_adapter = CommsAdapter(engine)
 monitor = CommsQualityMonitor()
 
 # Simulation loop
 for scan in range(1000):
     # Get clean signal data from RTU
-    clean_signals = get_rtu_data()
+    clean_signals, telemetry_feed = get_rtu_data()
+    telemetry = {
+        signal_id: CommsTelemetry(
+            poll_success=metrics["poll_success"],
+            rtt_ms=metrics["rtt_ms"],
+            jitter_ms=metrics["jitter_ms"],
+            dropout_streak=metrics.get("dropout_streak", 0),
+        )
+        for signal_id, metrics in telemetry_feed.items()
+    }
 
-    # Process through comms adapter (with artifacts)
-    result = comms_adapter.process_scan(clean_signals)
+    # Process through comms adapter
+    result = comms_adapter.process_scan(
+        clean_signals, telemetry_by_signal=telemetry
+    )
 
     # Monitor communication quality
     quality = monitor.update(result["comms_stats"])
@@ -463,7 +480,7 @@ for scan in range(1000):
 from sqe.core.engine import SignalQualityEngine, SignalConfig
 from sqe.integration.pointcore_adapter import PointCoreAdapter
 from sqe.integration.plcscan_adapter import PLCScanAdapter
-from sqe.integration.comms_adapter import CommsAdapter, CommsArtifact
+from sqe.integration.comms_adapter import CommsAdapter, CommsTelemetry
 
 # Initialize SQE
 engine = SignalQualityEngine(scan_interval=0.1)
@@ -475,8 +492,7 @@ pointcore = PointCoreAdapter(engine)
 plc_scan = PLCScanAdapter(engine, scan_interval=0.1)
 
 # Setup Comms adapter
-comms_config = CommsArtifact(jitter_ms=2.0, dropout_probability=0.01)
-comms = CommsAdapter(engine, comms_config)
+comms = CommsAdapter(engine)
 
 # Complete processing pipeline
 def process_scan_cycle():
@@ -489,8 +505,20 @@ def process_scan_cycle():
         p.point_id: p.value for p in point_signals
     }
 
-    # 3. Apply communication artifacts
-    comms_result = comms.process_scan(clean_signals)
+    telemetry = {
+        signal_id: CommsTelemetry(
+            poll_success=metrics["poll_success"],
+            rtt_ms=metrics["rtt_ms"],
+            jitter_ms=metrics["jitter_ms"],
+            dropout_streak=metrics.get("dropout_streak", 0),
+        )
+        for signal_id, metrics in fetch_comms_metrics().items()
+    }
+
+    # 3. Apply communication telemetry
+    comms_result = comms.process_scan(
+        clean_signals, telemetry_by_signal=telemetry
+    )
 
     # 4. Execute PLC scan with SQE processing
     scan_result = plc_scan.execute_scan(
@@ -568,6 +596,33 @@ for sig_id, sig_config in config['signals'].items():
         **sig_config
     )
     engine.register_signal(sig_id, config_obj)
+```
+
+## Signal Churn Policies
+
+Operational deployments should define explicit policies for signal churn to keep
+runtime behavior predictable:
+
+- **Newly appearing signals**: `engine.auto_register` controls whether unknown
+  signals are registered automatically. When `auto_register` is false,
+  `engine.unknown_signal_policy` decides whether to ignore unknown signals or
+  raise an error.
+- **Disappearing signals**: `engine.treat_missing_signals_as_none` controls
+  whether missing registered signals are treated as `None` (counted as missing)
+  or skipped entirely for that scan.
+- **Max signal ceilings**: `performance.max_signals` sets the cap, while
+  `engine.max_signals_policy` determines whether to error, ignore new signals,
+  or evict the oldest registration.
+
+```yaml
+engine:
+  auto_register: true
+  treat_missing_signals_as_none: true
+  unknown_signal_policy: error   # error | ignore
+  max_signals_policy: error      # error | ignore_new | evict_oldest
+
+performance:
+  max_signals: 1000
 ```
 
 ## Troubleshooting

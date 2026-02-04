@@ -5,7 +5,7 @@ Integrates all DSP components into a unified signal processing pipeline.
 Designed for deterministic, real-time operation within PLC scan cycles.
 """
 
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Deque
 from dataclasses import dataclass, asdict
 from collections import deque
 import logging
@@ -459,6 +459,8 @@ class SignalQualityEngine:
         auto_register: bool = True,
         max_signals: Optional[int] = None,
         treat_missing_signals_as_none: bool = True,
+        unknown_signal_policy: str = "error",
+        max_signals_policy: str = "error",
         log_scan_timing: bool = False,
         log_quality_changes: bool = False,
         log_anomalies: bool = False,
@@ -472,6 +474,8 @@ class SignalQualityEngine:
             auto_register: Automatically register unknown signals on update
             max_signals: Maximum number of registered signals (None for unlimited)
             treat_missing_signals_as_none: Treat missing registered signals as None
+            unknown_signal_policy: "error" or "ignore" for unknown signals
+            max_signals_policy: "error", "ignore_new", or "evict_oldest"
         """
         self.scan_interval = scan_interval
         self.auto_register = auto_register
@@ -479,7 +483,14 @@ class SignalQualityEngine:
             raise ValueError("max_signals must be positive or None")
         self.max_signals = max_signals
         self.treat_missing_signals_as_none = treat_missing_signals_as_none
+        self.unknown_signal_policy = self._validate_unknown_signal_policy(
+            unknown_signal_policy
+        )
+        self.max_signals_policy = self._validate_max_signals_policy(
+            max_signals_policy
+        )
         self.processors: Dict[str, SignalProcessor] = {}
+        self._registration_order: Deque[str] = deque()
         self.scan_count = 0
         self.last_scan_time: Optional[float] = None
         self.log_scan_timing = log_scan_timing
@@ -491,7 +502,7 @@ class SignalQualityEngine:
         self,
         signal_id: str,
         config: Optional[SignalConfig] = None
-    ) -> None:
+    ) -> bool:
         """
         Register a new signal for processing.
 
@@ -502,7 +513,16 @@ class SignalQualityEngine:
         if signal_id in self.processors:
             raise ValueError(f"Signal {signal_id} already registered")
         if self.max_signals is not None and len(self.processors) >= self.max_signals:
-            raise ValueError("Maximum number of registered signals reached")
+            if self.max_signals_policy == "ignore_new":
+                self.logger.warning(
+                    "Maximum number of registered signals reached; ignoring %s",
+                    signal_id,
+                )
+                return False
+            if self.max_signals_policy == "evict_oldest":
+                self._evict_oldest_signal()
+            else:
+                raise ValueError("Maximum number of registered signals reached")
 
         if config is None:
             config = SignalConfig(
@@ -515,6 +535,8 @@ class SignalQualityEngine:
             )
 
         self.processors[signal_id] = SignalProcessor(config)
+        self._registration_order.append(signal_id)
+        return True
 
     def unregister_signal(self, signal_id: str) -> None:
         """
@@ -525,6 +547,10 @@ class SignalQualityEngine:
         """
         if signal_id in self.processors:
             del self.processors[signal_id]
+            try:
+                self._registration_order.remove(signal_id)
+            except ValueError:
+                pass
 
     def update(
         self,
@@ -565,9 +591,12 @@ class SignalQualityEngine:
         for signal_id in ordered_signal_ids:
             if signal_id not in self.processors:
                 if not self.auto_register:
+                    if self.unknown_signal_policy == "ignore":
+                        continue
                     raise ValueError(f"Signal {signal_id} not registered")
                 # Auto-register unknown signals
-                self.register_signal(signal_id)
+                if not self.register_signal(signal_id):
+                    continue
 
             value = signals.get(signal_id)
             processor = self.processors[signal_id]
@@ -634,8 +663,11 @@ class SignalQualityEngine:
         for signal_id in ordered_signal_ids:
             if signal_id not in self.processors:
                 if not self.auto_register:
+                    if self.unknown_signal_policy == "ignore":
+                        continue
                     raise ValueError(f"Signal {signal_id} not registered")
-                self.register_signal(signal_id)
+                if not self.register_signal(signal_id):
+                    continue
 
             sample = samples.get(signal_id)
             if sample is None:
@@ -759,3 +791,33 @@ class SignalQualityEngine:
             List of signal identifiers
         """
         return list(self.processors.keys())
+
+    @staticmethod
+    def _validate_unknown_signal_policy(policy: str) -> str:
+        normalized = str(policy).lower()
+        if normalized not in {"error", "ignore"}:
+            raise ValueError(
+                "unknown_signal_policy must be 'error' or 'ignore'"
+            )
+        return normalized
+
+    @staticmethod
+    def _validate_max_signals_policy(policy: str) -> str:
+        normalized = str(policy).lower()
+        if normalized not in {"error", "ignore_new", "evict_oldest"}:
+            raise ValueError(
+                "max_signals_policy must be 'error', 'ignore_new', "
+                "or 'evict_oldest'"
+            )
+        return normalized
+
+    def _evict_oldest_signal(self) -> None:
+        while self._registration_order:
+            oldest = self._registration_order.popleft()
+            if oldest in self.processors:
+                del self.processors[oldest]
+                self.logger.warning(
+                    "Evicted oldest signal %s to honor max_signals policy",
+                    oldest,
+                )
+                return

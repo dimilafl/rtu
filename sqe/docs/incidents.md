@@ -40,8 +40,17 @@ Policy controls persistence, thresholds, and updates:
 - `end_persistence_scans`: scans required to resolve an incident.
 - `critical_sqi_threshold`: SQI at or below this is critical severity.
 - `component_score_floor`: component scores below this are degraded causes.
+- `hard_fault_causes`: causes that can trigger incidents even when their SQI
+  weight is zero (for example, stale or plausibility violations).
 - `emit_update_on_cause_change`: emit updated event on cause change.
 - `emit_update_on_severity_change`: emit updated event on severity change.
+
+## Cause selection and SQI weights
+Incident causes are chosen from degraded components whose scores fall below
+`component_score_floor`. Components only participate if they have a non-zero
+SQI weight or they are explicitly listed in `hard_fault_causes`. This aligns
+incident causality with SQI weighting while still supporting hard-fault
+channels that must surface even when their SQI weight is set to zero.
 
 ## Determinism guarantees
 The incident engine is scan driven with explicit timestamps. Given identical

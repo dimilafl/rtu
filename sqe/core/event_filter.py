@@ -26,6 +26,7 @@ class EventFilter:
 
     def __init__(self, policy: EventFilterPolicy) -> None:
         self.policy = policy
+        self._deferred_by_group: Dict[str, List[IncidentEvent]] = {}
 
     def filter_events(
         self,
@@ -36,7 +37,13 @@ class EventFilter:
         active_group_incidents: Dict[str, GroupIncident],
         signal_id_to_group_id: Dict[str, str],
     ) -> Tuple[List[IncidentEvent], Dict[str, int]]:
-        del scan_index, timestamp, group_events
+        del scan_index, timestamp
+
+        resolved_group_ids = {
+            event.incident.group_id
+            for event in group_events
+            if event.event_type == IncidentEventType.RESOLVED
+        }
 
         stats: Dict[str, int] = {}
         if self.policy.include_suppression_stats:
@@ -46,12 +53,18 @@ class EventFilter:
                 "suppressed_member_events_started": 0,
                 "suppressed_member_events_updated": 0,
                 "suppressed_member_events_resolved": 0,
+                "deferred_member_events": 0,
+                "reemitted_member_events": 0,
             }
 
         if not self.policy.suppress_member_events:
-            return list(signal_events), stats
+            return self._append_deferred_events(
+                signal_events, resolved_group_ids, stats
+            )
         if not self.policy.suppress_when_group_event_active:
-            return list(signal_events), stats
+            return self._append_deferred_events(
+                signal_events, resolved_group_ids, stats
+            )
 
         suppress_causes = {
             str(cause).lower() for cause in self.policy.suppress_group_causes
@@ -62,7 +75,9 @@ class EventFilter:
             if incident and str(incident.cause.value).lower() in suppress_causes
         }
         if not active_group_ids:
-            return list(signal_events), stats
+            return self._append_deferred_events(
+                signal_events, resolved_group_ids, stats
+            )
 
         suppress_event_types = {
             str(event_type).lower()
@@ -93,8 +108,29 @@ class EventFilter:
                         stats["suppressed_member_events_updated"] += 1
                     elif event.event_type == IncidentEventType.RESOLVED:
                         stats["suppressed_member_events_resolved"] += 1
+                    stats["deferred_member_events"] += 1
+                if group_id:
+                    self._deferred_by_group.setdefault(group_id, []).append(event)
                 continue
 
             filtered.append(event)
 
-        return filtered, stats
+        return self._append_deferred_events(filtered, resolved_group_ids, stats)
+
+    def _append_deferred_events(
+        self,
+        events: List[IncidentEvent],
+        resolved_group_ids: set[str],
+        stats: Dict[str, int],
+    ) -> Tuple[List[IncidentEvent], Dict[str, int]]:
+        if not resolved_group_ids:
+            return list(events), stats
+
+        deferred: List[IncidentEvent] = []
+        for group_id in sorted(resolved_group_ids):
+            deferred.extend(self._deferred_by_group.pop(group_id, []))
+
+        if deferred and stats:
+            stats["reemitted_member_events"] += len(deferred)
+
+        return list(events) + deferred, stats

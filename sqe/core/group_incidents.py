@@ -237,12 +237,24 @@ class GroupIncidentEngine:
     ) -> GroupIncidentCause:
         missing = 0
         non_missing = 0
+        comms_samples = 0
+        comms_degraded = 0
         for member_id in degraded_members:
             status = member_status.get(member_id, {})
+            comms = status.get("comms")
+            if isinstance(comms, dict) and comms:
+                comms_samples += 1
+                if comms.get("degraded"):
+                    comms_degraded += 1
             if status.get("cause") == IncidentCause.MISSING:
                 missing += 1
             else:
                 non_missing += 1
+        if comms_samples:
+            if comms_degraded > comms_samples - comms_degraded:
+                return GroupIncidentCause.COMMS
+            if comms_degraded < comms_samples - comms_degraded:
+                return GroupIncidentCause.DATA_QUALITY
         if missing > non_missing:
             return GroupIncidentCause.COMMS
         if non_missing > missing:
