@@ -6,12 +6,28 @@ from sqe.rca.schema import (
     TroubleshootReport,
     OverallState,
     LeafObservation,
+    SCHEMA_VERSION,
 )
 from sqe.rca.evidence import (
     build_leaf_observations,
     aggregate_node_evidence,
+    select_representative_signals,
 )
 from sqe.rca.state import RCAState
+from sqe.rca.scoring import (
+    ScoringConfig,
+    score_candidates,
+    get_default_scoring_config,
+    get_primary_and_secondary,
+    filter_candidates_by_threshold,
+)
+from sqe.rca.confidence import (
+    ConfidenceConfig,
+    compute_confidence,
+    compute_all_confidences,
+    get_default_confidence_config,
+    get_confidence_assessment,
+)
 
 __all__ = [
     "NodeEvidence",
@@ -19,7 +35,19 @@ __all__ = [
     "TroubleshootReport",
     "OverallState",
     "LeafObservation",
+    "SCHEMA_VERSION",
     "build_leaf_observations",
     "aggregate_node_evidence",
+    "select_representative_signals",
     "RCAState",
+    "ScoringConfig",
+    "score_candidates",
+    "get_default_scoring_config",
+    "get_primary_and_secondary",
+    "filter_candidates_by_threshold",
+    "ConfidenceConfig",
+    "compute_confidence",
+    "compute_all_confidences",
+    "get_default_confidence_config",
+    "get_confidence_assessment",
 ]
