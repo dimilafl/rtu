@@ -9,6 +9,8 @@ must produce byte-for-byte identical outputs for the inputs in this folder.
 - `groups.yaml`: grouping configuration.
 - `expected_incidents.jsonl`: expected signal incident events.
 - `expected_group_incidents.jsonl`: expected group incident events.
+- `golden_metrics.json`: SQI and performance fence thresholds.
+- `schema_snapshot.json`: schema hash for versioning fences.
 
 ## Deterministic rules
 1. **Input scan order is preserved.** Process scans in the exact order provided
@@ -22,4 +24,4 @@ must produce byte-for-byte identical outputs for the inputs in this folder.
    - Sort keys (`sort_keys=True`).
    - Emit newline-terminated JSONL (one JSON object per line, ending in `\n`).
 5. **Schema stability**: do not add or remove fields without updating these
-   vectors and their tests.
+   vectors and their tests (bump `schema_version` when schema changes).
