@@ -53,6 +53,25 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     return merged
 
 
+def _validate_override_keys(
+    override: Dict[str, Any],
+    base: Dict[str, Any],
+    path: str = "",
+) -> None:
+    for key, value in override.items():
+        if key not in base:
+            dotted = f"{path}{key}" if path else key
+            raise ConfigError(f"Unknown configuration key: {dotted}")
+        base_value = base[key]
+        if isinstance(value, dict):
+            if not isinstance(base_value, dict):
+                dotted = f"{path}{key}" if path else key
+                raise ConfigError(
+                    f"Configuration section '{dotted}' must not be a mapping"
+                )
+            _validate_override_keys(value, base_value, f"{path}{key}.")
+
+
 def load_config(user_path: Optional[str] = None) -> Dict[str, Any]:
     """
     Load configuration from defaults.yaml and optional user override.
@@ -66,6 +85,7 @@ def load_config(user_path: Optional[str] = None) -> Dict[str, Any]:
     defaults = _load_yaml(DEFAULT_CONFIG_PATH)
     if user_path:
         user_config = _load_yaml(Path(user_path))
+        _validate_override_keys(user_config, defaults)
         return _deep_merge(defaults, user_config)
     return defaults
 
