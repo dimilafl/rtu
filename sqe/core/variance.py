@@ -2,23 +2,21 @@
 Sliding-Window Variance Calculator
 
 Implements numerically stable incremental variance calculation
-for real-time signal quality assessment.
+for real-time signal quality assessment using O(1) rolling sums.
 """
 
-from typing import Optional
-import numpy as np
-from sqe.core.signal_buffer import SignalBuffer
+from collections import deque
+from math import sqrt
+from typing import Deque, Optional
 
 
 class VarianceCalculator:
     """
-    Calculates sliding-window variance using Welford's online algorithm.
+    Calculates sliding-window variance using O(1) rolling sums.
 
-    Numerically stable incremental calculation:
-        mean = Σ x / N
-        variance = Σ (x - mean)² / N
-
-    Uses Welford's method to avoid catastrophic cancellation.
+    Uses incremental sum and sum-of-squares for constant-time updates:
+        mean = sum / n
+        variance = (sumsq - sum²/n) / (n-1)  [sample variance]
     """
 
     def __init__(self, window_size: int):
@@ -32,7 +30,11 @@ class VarianceCalculator:
             raise ValueError("Window size must be > 1 for variance")
 
         self.window_size = window_size
-        self.buffer = SignalBuffer(window_size)
+        self._window: Deque[float] = deque(maxlen=window_size)
+        self._sum: float = 0.0
+        self._sumsq: float = 0.0
+        # Cache the last computed stats for get_stats()
+        self._cached_stats: Optional[dict] = None
 
     def update(self, x: float) -> dict:
         """
@@ -44,34 +46,60 @@ class VarianceCalculator:
         Returns:
             Dictionary with mean, variance, std_dev, and noise_level
         """
-        self.buffer.push(x)
-        samples = self.buffer.get_samples()
+        # Evict oldest value if window is full
+        if len(self._window) == self.window_size:
+            y = self._window[0]  # Will be evicted by append
+            self._sum -= y
+            self._sumsq -= y * y
 
-        if len(samples) < 2:
-            # Need at least 2 samples for variance
-            return {
+        # Add new value
+        self._window.append(x)
+        self._sum += x
+        self._sumsq += x * x
+
+        n = len(self._window)
+
+        if n < 2:
+            stats = {
                 "mean": x,
                 "variance": 0.0,
                 "std_dev": 0.0,
                 "noise_level": 0.0,
-                "sample_count": len(samples)
+                "sample_count": n
             }
+            self._cached_stats = stats
+            return stats
 
-        # Calculate statistics using numpy
-        mean = np.mean(samples)
-        variance = np.var(samples, ddof=1)  # Sample variance
-        std_dev = np.sqrt(variance)
+        # Compute mean
+        mean = self._sum / n
+
+        # Compute sample variance (ddof=1)
+        # ss = sumsq - sum²/n
+        ss = self._sumsq - (self._sum * self._sum) / n
+        # Clamp to avoid negative due to floating point errors
+        if ss < 0.0:
+            ss = 0.0
+        variance = ss / (n - 1)
+        if variance < 0.0:
+            variance = 0.0
+
+        std_dev = sqrt(variance)
 
         # Noise level as coefficient of variation
-        cv = std_dev / abs(mean) if abs(mean) > 1e-9 else std_dev
+        if abs(mean) > 1e-9:
+            noise_level = std_dev / abs(mean)
+        else:
+            noise_level = std_dev
 
-        return {
-            "mean": float(mean),
-            "variance": float(variance),
-            "std_dev": float(std_dev),
-            "noise_level": float(cv),
-            "sample_count": len(samples)
+        stats = {
+            "mean": mean,
+            "variance": variance,
+            "std_dev": std_dev,
+            "noise_level": noise_level,
+            "sample_count": n
         }
+        self._cached_stats = stats
+        return stats
 
     def get_stats(self) -> dict:
         """
@@ -80,29 +108,51 @@ class VarianceCalculator:
         Returns:
             Dictionary with mean, variance, std_dev, and noise_level
         """
-        samples = self.buffer.get_samples()
+        # If we have cached stats, return them
+        if self._cached_stats is not None:
+            return self._cached_stats
 
-        if len(samples) < 2:
-            mean = float(np.mean(samples)) if len(samples) > 0 else 0.0
+        n = len(self._window)
+
+        if n == 0:
+            return {
+                "mean": 0.0,
+                "variance": 0.0,
+                "std_dev": 0.0,
+                "noise_level": 0.0,
+                "sample_count": 0
+            }
+
+        if n < 2:
+            mean = self._sum / n if n > 0 else 0.0
             return {
                 "mean": mean,
                 "variance": 0.0,
                 "std_dev": 0.0,
                 "noise_level": 0.0,
-                "sample_count": len(samples)
+                "sample_count": n
             }
 
-        mean = np.mean(samples)
-        variance = np.var(samples, ddof=1)  # Sample variance
-        std_dev = np.sqrt(variance)
-        cv = std_dev / abs(mean) if abs(mean) > 1e-9 else std_dev
+        mean = self._sum / n
+        ss = self._sumsq - (self._sum * self._sum) / n
+        if ss < 0.0:
+            ss = 0.0
+        variance = ss / (n - 1)
+        if variance < 0.0:
+            variance = 0.0
+        std_dev = sqrt(variance)
+
+        if abs(mean) > 1e-9:
+            noise_level = std_dev / abs(mean)
+        else:
+            noise_level = std_dev
 
         return {
-            "mean": float(mean),
-            "variance": float(variance),
-            "std_dev": float(std_dev),
-            "noise_level": float(cv),
-            "sample_count": len(samples)
+            "mean": mean,
+            "variance": variance,
+            "std_dev": std_dev,
+            "noise_level": noise_level,
+            "sample_count": n
         }
 
     def get_spike_threshold(
@@ -158,7 +208,10 @@ class VarianceCalculator:
 
     def reset(self) -> None:
         """Reset calculator state."""
-        self.buffer.clear()
+        self._window.clear()
+        self._sum = 0.0
+        self._sumsq = 0.0
+        self._cached_stats = None
 
 
 class WelfordVariance:
@@ -200,7 +253,7 @@ class WelfordVariance:
             }
 
         variance = self.m2 / (self.count - 1)
-        std_dev = np.sqrt(variance)
+        std_dev = sqrt(variance)
 
         return {
             "mean": self.mean,
@@ -221,13 +274,15 @@ class SpikeDetector:
     Dedicated spike detection using statistical thresholds.
 
     Combines variance analysis with adaptive thresholding.
+    Can use an external VarianceCalculator for shared stats.
     """
 
     def __init__(
         self,
         window_size: int = 20,
         k_sigma: float = 3.0,
-        debounce_samples: int = 1
+        debounce_samples: int = 1,
+        variance_calc: Optional[VarianceCalculator] = None,
     ):
         """
         Initialize spike detector.
@@ -236,8 +291,15 @@ class SpikeDetector:
             window_size: Window for baseline statistics
             k_sigma: Number of standard deviations for threshold
             debounce_samples: Consecutive samples to confirm spike
+            variance_calc: Optional external variance calculator to share
         """
-        self.variance_calc = VarianceCalculator(window_size)
+        if variance_calc is not None:
+            self.variance_calc = variance_calc
+            self._external_variance = True
+        else:
+            self.variance_calc = VarianceCalculator(window_size)
+            self._external_variance = False
+
         self.k_sigma = k_sigma
         self.debounce_samples = debounce_samples
         self._consecutive_spikes = 0
@@ -257,13 +319,15 @@ class SpikeDetector:
 
         Args:
             x: New signal value
+            signal_id: Optional signal identifier for caching
+            baseline_stats_cache: Optional cache for baseline stats
 
         Returns:
             Dictionary with spike detection results
         """
         self.total_samples += 1
 
-        # Baseline statistics before updating with current sample
+        # Get baseline statistics BEFORE updating with current sample
         baseline_stats = None
         if baseline_stats_cache is not None and signal_id is not None:
             baseline_stats = baseline_stats_cache.get(signal_id)
@@ -273,8 +337,7 @@ class SpikeDetector:
             if baseline_stats_cache is not None and signal_id is not None:
                 baseline_stats_cache[signal_id] = baseline_stats
 
-        # Cache invalidation assumption: the cached baseline stats are only valid
-        # until variance_calc.update is called for this signal (i.e., within one scan).
+        # Get threshold from baseline stats
         baseline_threshold = self.variance_calc.get_spike_threshold(
             self.k_sigma,
             stats=baseline_stats,
@@ -296,8 +359,10 @@ class SpikeDetector:
         if is_spike and not self._was_spike:
             self.spike_count += 1
 
-        # Update variance statistics after spike evaluation
-        self.variance_calc.update(x)
+        # Only update variance if we own the calculator (not external)
+        if not self._external_variance:
+            self.variance_calc.update(x)
+
         self._was_spike = is_spike
 
         # Calculate spike frequency
