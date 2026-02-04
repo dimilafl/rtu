@@ -70,12 +70,18 @@ class FrequencyDetector:
         self._cos_refs = np.cos(omega * n)
         self._freq_index = {freq: index for index, freq in enumerate(self.ref_frequencies)}
 
-    def update(self, x: float) -> Dict[float, FrequencyComponent]:
+    def update(
+        self,
+        x: float,
+        *,
+        compute: bool = True,
+    ) -> Dict[float, FrequencyComponent]:
         """
         Process new sample and detect frequency components.
 
         Args:
             x: New signal sample
+            compute: Whether to compute correlation results for this sample.
 
         Returns:
             Dictionary mapping frequencies to detected components
@@ -84,7 +90,7 @@ class FrequencyDetector:
         self.sample_count += 1
 
         # Need full window for reliable detection
-        if not self.buffer.is_full():
+        if not compute or not self.buffer.is_full():
             return {}
 
         samples = self.buffer.get_samples()
@@ -251,19 +257,20 @@ class FFTFrequencyAnalyzer:
         self._window = np.hanning(window_size)
         self._frequencies = np.fft.rfftfreq(window_size, self.dt)
 
-    def update(self, x: float) -> Dict:
+    def update(self, x: float, *, skip_fft: bool = False) -> Dict:
         """
         Process new sample and compute spectrum.
 
         Args:
             x: New signal sample
+            skip_fft: Whether to skip FFT computation for this sample.
 
         Returns:
             Dictionary with frequency spectrum information
         """
         self.buffer.push(x)
 
-        if not self.buffer.is_full():
+        if skip_fft or not self.buffer.is_full():
             return {
                 "frequencies": [],
                 "magnitudes": [],
@@ -338,29 +345,59 @@ class OscillationDetector:
             if enable_fft
             else None
         )
+        self._last_result: Dict[str, object] = {
+            "correlation_components": {},
+            "total_oscillation_energy": 0.0,
+            "dominant_frequency": None,
+            "dominant_magnitude": 0.0,
+            "fft_peak_frequency": None,
+            "fft_peak_magnitude": 0.0,
+        }
 
-    def update(self, x: float) -> Dict:
+    def update(
+        self,
+        x: float,
+        *,
+        load_shed: bool = False,
+        cadence: int = 1,
+        skip_fft: bool = False,
+    ) -> Dict:
         """
         Process sample with both detection methods.
 
         Args:
             x: New signal sample
+            load_shed: Whether load-shedding mode is active.
+            cadence: Update cadence for correlation calculations.
+            skip_fft: Whether to skip FFT when load shedding.
 
         Returns:
             Combined oscillation analysis results
         """
+        cadence = max(1, int(cadence))
+        compute_now = not load_shed or cadence <= 1
+        if not compute_now:
+            next_count = self.freq_detector.sample_count + 1
+            compute_now = next_count % cadence == 0
+
         # Correlation-based detection
-        components = self.freq_detector.update(x)
+        components = self.freq_detector.update(x, compute=compute_now)
+
+        # FFT-based analysis
+        spectrum = {"peak_frequency": None, "peak_magnitude": 0.0}
+        if self.fft_analyzer:
+            skip_fft_effective = load_shed and skip_fft
+            spectrum = self.fft_analyzer.update(
+                x, skip_fft=skip_fft_effective or not compute_now
+            )
+
+        if not compute_now:
+            return self._last_result
+
         total_energy = self.freq_detector.get_total_oscillation_energy()
         dominant = self.freq_detector.get_dominant_frequency()
 
-        # FFT-based analysis
-        if self.fft_analyzer:
-            spectrum = self.fft_analyzer.update(x)
-        else:
-            spectrum = {"peak_frequency": None, "peak_magnitude": 0.0}
-
-        return {
+        self._last_result = {
             "correlation_components": {
                 f: {"magnitude": c.magnitude, "energy": c.energy, "phase": c.phase}
                 for f, c in components.items()
@@ -371,9 +408,18 @@ class OscillationDetector:
             "fft_peak_frequency": spectrum["peak_frequency"],
             "fft_peak_magnitude": spectrum["peak_magnitude"]
         }
+        return self._last_result
 
     def reset(self) -> None:
         """Reset both detectors."""
         self.freq_detector.reset()
         if self.fft_analyzer:
             self.fft_analyzer.reset()
+        self._last_result = {
+            "correlation_components": {},
+            "total_oscillation_energy": 0.0,
+            "dominant_frequency": None,
+            "dominant_magnitude": 0.0,
+            "fft_peak_frequency": None,
+            "fft_peak_magnitude": 0.0,
+        }
