@@ -3,11 +3,11 @@ Digital Signal Processing Filters
 
 Implements low-pass, high-pass, and moving average filters
 for real-time signal conditioning in discrete time.
+All filters use O(1) operations suitable for real-time hot paths.
 """
 
-from typing import Optional
-import numpy as np
-from sqe.core.signal_buffer import SignalBuffer
+from collections import deque
+from typing import Deque, Optional
 
 
 class EWMAFilter:
@@ -102,7 +102,7 @@ class MovingAverageFilter:
     """
     Simple Moving Average Filter.
 
-    Computes average of last N samples.
+    Computes average of last N samples using O(1) rolling sum.
     Provides uniform weighting within the window.
     """
 
@@ -117,7 +117,8 @@ class MovingAverageFilter:
             raise ValueError("Window size must be positive")
 
         self.window_size = window_size
-        self.buffer = SignalBuffer(window_size)
+        self._window: Deque[float] = deque(maxlen=window_size)
+        self._sum: float = 0.0
 
     def update(self, x: float) -> float:
         """
@@ -129,17 +130,24 @@ class MovingAverageFilter:
         Returns:
             Moving average output
         """
-        self.buffer.push(x)
-        samples = self.buffer.get_samples()
+        # Evict oldest if window is full
+        if len(self._window) == self.window_size:
+            evicted = self._window[0]
+            self._sum -= evicted
 
-        if len(samples) == 0:
+        self._window.append(x)
+        self._sum += x
+
+        n = len(self._window)
+        if n == 0:
             return x
 
-        return np.mean(samples)
+        return self._sum / n
 
     def reset(self) -> None:
         """Reset filter state."""
-        self.buffer.clear()
+        self._window.clear()
+        self._sum = 0.0
 
 
 class FilterBank:

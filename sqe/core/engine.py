@@ -283,10 +283,12 @@ class SignalProcessor:
         )
 
         # Initialize variance and spike detection
+        # Share single VarianceCalculator between variance tracking and spike detection
         self.variance_calc = VarianceCalculator(config.variance_window)
         self.spike_detector = SpikeDetector(
             window_size=config.variance_window,
-            k_sigma=config.spike_k_sigma
+            k_sigma=config.spike_k_sigma,
+            variance_calc=self.variance_calc,
         )
 
         # Initialize frequency detection
@@ -397,13 +399,14 @@ class SignalProcessor:
         # Drift detection
         drift_event = self.drift_detector.update(x)
 
-        # Variance and spike detection
-        variance_result = self.variance_calc.update(x)
+        # Spike detection BEFORE variance update (spike needs pre-update baseline stats)
         spike_result = self.spike_detector.update(
             x,
             signal_id=self.config.signal_id,
             baseline_stats_cache=baseline_stats_cache,
         )
+        # Variance update (shared variance_calc is updated exactly once per sample)
+        variance_result = self.variance_calc.update(x)
 
         # Frequency detection
         if self.compute_oscillation:

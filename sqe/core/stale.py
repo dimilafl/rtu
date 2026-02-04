@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Optional
+from typing import Optional
 
 
 @dataclass
@@ -18,7 +17,10 @@ class StaleResult:
 
 
 class StaleDetector:
-    """Detects frozen values or non-advancing timestamps with hysteresis."""
+    """Detects frozen values or non-advancing timestamps with hysteresis.
+
+    Uses O(1) run-length tracking for flatline detection instead of O(n) set().
+    """
 
     def __init__(self, window_size: int, recovery_window: int) -> None:
         if window_size <= 1:
@@ -27,7 +29,9 @@ class StaleDetector:
             raise ValueError("recovery_window must be > 0")
         self.window_size = window_size
         self.recovery_window = recovery_window
-        self._values: Deque[float] = deque(maxlen=window_size)
+        # Run-length tracking for O(1) flatline detection
+        self._last_value: Optional[float] = None
+        self._flatline_run: int = 0
         self._last_timestamp: Optional[float] = None
         self._stale_active = False
         self._stale_reason: Optional[str] = None
@@ -35,17 +39,23 @@ class StaleDetector:
 
     def update(self, value: float, timestamp: float) -> StaleResult:
         """Update detector with a new sample."""
-        self._values.append(value)
+        # Update run-length for flatline detection
+        if self._last_value is None:
+            self._last_value = value
+            self._flatline_run = 1
+        elif value == self._last_value:
+            self._flatline_run += 1
+        else:
+            self._last_value = value
+            self._flatline_run = 1
 
         timestamp_stale = (
             self._last_timestamp is not None and timestamp <= self._last_timestamp
         )
         self._last_timestamp = timestamp
 
-        flatline = (
-            len(self._values) == self.window_size
-            and len(set(self._values)) == 1
-        )
+        # Flatline detected when run length reaches window_size
+        flatline = self._flatline_run >= self.window_size
 
         raw_stale = timestamp_stale or flatline
         if raw_stale:
@@ -71,7 +81,8 @@ class StaleDetector:
 
     def reset(self) -> None:
         """Reset detector state."""
-        self._values.clear()
+        self._last_value = None
+        self._flatline_run = 0
         self._last_timestamp = None
         self._stale_active = False
         self._stale_reason = None

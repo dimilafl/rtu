@@ -6,8 +6,6 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Deque, Optional
 
-import numpy as np
-
 
 @dataclass
 class StepChangeResult:
@@ -20,7 +18,10 @@ class StepChangeResult:
 
 
 class StepChangeDetector:
-    """Detects persistent step changes with confirmation and recovery."""
+    """Detects persistent step changes with confirmation and recovery.
+
+    Uses O(1) rolling sum for baseline computation instead of O(n) np.mean.
+    """
 
     def __init__(
         self,
@@ -42,6 +43,7 @@ class StepChangeDetector:
         self.persistence_scans = persistence_scans
         self.recovery_scans = recovery_scans
         self._window: Deque[float] = deque(maxlen=baseline_window)
+        self._baseline_sum: float = 0.0
         self._candidate_level: Optional[float] = None
         self._baseline_snapshot: Optional[float] = None
         self._confirm_count = 0
@@ -50,11 +52,18 @@ class StepChangeDetector:
 
     def update(self, value: float) -> StepChangeResult:
         """Update detector with a new sample."""
+        # Track rolling sum for O(1) mean computation
+        if len(self._window) == self.baseline_window:
+            # Evict oldest value before append
+            evicted = self._window[0]
+            self._baseline_sum -= evicted
+
         self._window.append(value)
+        self._baseline_sum += value
 
         baseline = None
         if len(self._window) == self.baseline_window:
-            baseline = float(np.mean(self._window))
+            baseline = self._baseline_sum / self.baseline_window
 
         activated = False
         if not self._active and baseline is not None:
@@ -107,6 +116,7 @@ class StepChangeDetector:
     def reset(self) -> None:
         """Reset detector state."""
         self._window.clear()
+        self._baseline_sum = 0.0
         self._candidate_level = None
         self._baseline_snapshot = None
         self._confirm_count = 0
