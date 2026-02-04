@@ -18,10 +18,11 @@ from sqe.core.signal_buffer import SignalBuffer
 @dataclass
 class FrequencyComponent:
     """Detected frequency component."""
-    frequency: float        # Frequency in Hz
-    magnitude: float        # Correlation magnitude
-    phase: float           # Phase offset in radians
-    energy: float          # Oscillation energy
+
+    frequency: float  # Frequency in Hz
+    magnitude: float  # Correlation magnitude
+    phase: float  # Phase offset in radians
+    energy: float  # Oscillation energy
 
 
 class FrequencyDetector:
@@ -37,7 +38,7 @@ class FrequencyDetector:
         reference_frequencies: List[float],
         sample_interval: float,
         window_size: int = 50,
-        threshold: float = 0.5
+        threshold: float = 0.5,
     ):
         """
         Initialize frequency detector.
@@ -68,7 +69,9 @@ class FrequencyDetector:
         omega = 2 * np.pi * freq_array[:, np.newaxis] * self.dt
         self._sin_refs = np.sin(omega * n)
         self._cos_refs = np.cos(omega * n)
-        self._freq_index = {freq: index for index, freq in enumerate(self.ref_frequencies)}
+        self._freq_index = {
+            freq: index for index, freq in enumerate(self.ref_frequencies)
+        }
 
     def update(
         self,
@@ -105,7 +108,10 @@ class FrequencyDetector:
 
     def _get_components(self, samples: np.ndarray) -> List[FrequencyComponent]:
         """Return cached or freshly computed components for current window."""
-        if self._last_sample_count == self.sample_count and self._last_components is not None:
+        if (
+            self._last_sample_count == self.sample_count
+            and self._last_components is not None
+        ):
             return self._last_components
 
         components = self._detect_all_frequencies(samples)
@@ -149,11 +155,7 @@ class FrequencyDetector:
             )
         return components
 
-    def _detect_frequency(
-        self,
-        samples: np.ndarray,
-        freq: float
-    ) -> FrequencyComponent:
+    def _detect_frequency(self, samples: np.ndarray, freq: float) -> FrequencyComponent:
         """
         Detect specific frequency component using correlation.
 
@@ -171,8 +173,12 @@ class FrequencyDetector:
 
         # Correlate with sine and cosine references
         freq_index = self._freq_index[freq]
-        sin_corr = np.sum(samples_normalized * self._sin_refs[freq_index]) / len(samples)
-        cos_corr = np.sum(samples_normalized * self._cos_refs[freq_index]) / len(samples)
+        sin_corr = np.sum(samples_normalized * self._sin_refs[freq_index]) / len(
+            samples
+        )
+        cos_corr = np.sum(samples_normalized * self._cos_refs[freq_index]) / len(
+            samples
+        )
 
         # Calculate magnitude and phase
         magnitude = np.sqrt(sin_corr**2 + cos_corr**2)
@@ -185,7 +191,7 @@ class FrequencyDetector:
             frequency=freq,
             magnitude=float(magnitude),
             phase=float(phase),
-            energy=float(energy)
+            energy=float(energy),
         )
 
     def get_dominant_frequency(self) -> Optional[FrequencyComponent]:
@@ -275,7 +281,7 @@ class FFTFrequencyAnalyzer:
                 "frequencies": [],
                 "magnitudes": [],
                 "peak_frequency": None,
-                "peak_magnitude": 0.0
+                "peak_magnitude": 0.0,
             }
 
         samples = self.buffer.get_samples()
@@ -303,7 +309,7 @@ class FFTFrequencyAnalyzer:
             "frequencies": frequencies.tolist(),
             "magnitudes": magnitudes.tolist(),
             "peak_frequency": float(peak_freq) if peak_freq else None,
-            "peak_magnitude": float(peak_mag)
+            "peak_magnitude": float(peak_mag),
         }
 
     def reset(self) -> None:
@@ -336,13 +342,12 @@ class OscillationDetector:
             enable_fft: Toggle FFT-based spectrum analysis
         """
         self.freq_detector = FrequencyDetector(
-            reference_frequencies,
-            sample_interval,
-            window_size
+            reference_frequencies, sample_interval, window_size
         )
+        self._fft_enabled = bool(enable_fft) and window_size > 1
         self.fft_analyzer = (
             FFTFrequencyAnalyzer(window_size, sample_interval)
-            if enable_fft
+            if self._fft_enabled
             else None
         )
         self._last_result: Dict[str, object] = {
@@ -406,7 +411,7 @@ class OscillationDetector:
             "dominant_frequency": dominant.frequency if dominant else None,
             "dominant_magnitude": dominant.magnitude if dominant else 0.0,
             "fft_peak_frequency": spectrum["peak_frequency"],
-            "fft_peak_magnitude": spectrum["peak_magnitude"]
+            "fft_peak_magnitude": spectrum["peak_magnitude"],
         }
         return self._last_result
 

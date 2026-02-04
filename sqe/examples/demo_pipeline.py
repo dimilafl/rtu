@@ -18,7 +18,9 @@ if str(ROOT_DIR) not in sys.path:
 from sqe.core.engine import SignalQualityEngine, SignalConfig
 
 
-def generate_clean_signal(t: float, freq: float = 0.5, amplitude: float = 10.0) -> float:
+def generate_clean_signal(
+    t: float, freq: float = 0.5, amplitude: float = 10.0
+) -> float:
     """Generate clean sinusoidal signal."""
     return amplitude * math.sin(2 * math.pi * freq * t)
 
@@ -55,10 +57,8 @@ def main():
     engine.register_signal(
         "CLEAN_SIGNAL",
         SignalConfig(
-            signal_id="CLEAN_SIGNAL",
-            ewma_alpha=0.3,
-            reference_frequencies=[0.5, 1.0]
-        )
+            signal_id="CLEAN_SIGNAL", ewma_alpha=0.3, reference_frequencies=[0.5, 1.0]
+        ),
     )
 
     # Noisy signal
@@ -67,8 +67,8 @@ def main():
         SignalConfig(
             signal_id="NOISY_SIGNAL",
             ewma_alpha=0.2,  # More smoothing for noisy signal
-            variance_window=30
-        )
+            variance_window=30,
+        ),
     )
 
     # Drifting signal
@@ -77,8 +77,8 @@ def main():
         SignalConfig(
             signal_id="DRIFT_SIGNAL",
             small_drift_threshold=0.2,
-            large_drift_threshold=2.0
-        )
+            large_drift_threshold=2.0,
+        ),
     )
 
     print(f"Registered {len(engine.get_registered_signals())} signals")
@@ -98,11 +98,11 @@ def main():
         signals = {
             "CLEAN_SIGNAL": generate_clean_signal(t),
             "NOISY_SIGNAL": generate_noisy_signal(t, noise_level=2.0),
-            "DRIFT_SIGNAL": generate_drifting_signal(t, drift_rate=0.3)
+            "DRIFT_SIGNAL": generate_drifting_signal(t, drift_rate=0.3),
         }
 
         # Process through engine
-        results = engine.update(signals)
+        results = engine.update(signals, timestamp=t)
 
         # Print periodic updates
         if scan % 20 == 0:
@@ -143,7 +143,7 @@ def main():
         print(f"  Missing Samples: {stats['missing_count']}")
         print(f"  Missing Ratio: {stats['missing_ratio']:.2%}")
 
-        sqi_stats = stats['sqi_stats']
+        sqi_stats = stats["sqi_stats"]
         print(f"  SQI Statistics:")
         print(f"    Mean: {sqi_stats['mean_sqi']:.1f}")
         print(f"    Min: {sqi_stats['min_sqi']:.1f}")
@@ -152,7 +152,7 @@ def main():
         print()
 
     # Get final processed signals
-    final_results = engine.update(signals)
+    final_results = engine.update(signals, timestamp=scan_count * dt)
 
     print("=" * 60)
     print("Signal Quality Comparison")

@@ -90,7 +90,7 @@ def load_signal_from_csv(filepath: str) -> List[SignalRow]:
     """
     rows: List[SignalRow] = []
 
-    with open(filepath, 'r') as f:
+    with open(filepath, "r") as f:
         reader = csv.DictReader(f)
         required_fields = {"timestamp", "signal_id", "value"}
         fieldnames = set(reader.fieldnames or [])
@@ -99,25 +99,27 @@ def load_signal_from_csv(filepath: str) -> List[SignalRow]:
             missing = ", ".join(sorted(missing_fields))
             raise ValueError(f"Missing required CSV columns: {missing}")
         for row in reader:
-            if not any(value and value.strip() for value in row.values() if value is not None):
+            if not any(
+                value and value.strip() for value in row.values() if value is not None
+            ):
                 continue
-            signal_id = (row.get('signal_id') or "").strip()
+            signal_id = (row.get("signal_id") or "").strip()
             if not signal_id:
-                raise ValueError(
-                    f"Missing signal_id value on line {reader.line_num}"
-                )
+                raise ValueError(f"Missing signal_id value on line {reader.line_num}")
             rows.append(
                 SignalRow(
-                    timestamp=_parse_optional_float(row.get('timestamp')),
+                    timestamp=_parse_optional_float(row.get("timestamp")),
                     signal_id=signal_id,
-                    value=_parse_optional_float(row.get('value'))
+                    value=_parse_optional_float(row.get("value")),
                 )
             )
 
     return rows
 
 
-def build_scans(rows: Iterable[SignalRow]) -> Tuple[List[str], List[Tuple[Optional[float], Dict[str, Optional[float]]]]]:
+def build_scans(
+    rows: Iterable[SignalRow],
+) -> Tuple[List[str], List[Tuple[Optional[float], Dict[str, Optional[float]]]]]:
     signal_ids: List[str] = []
     seen_signals = set()
     grouped: Dict[float, Dict[str, Optional[float]]] = {}
@@ -133,7 +135,10 @@ def build_scans(rows: Iterable[SignalRow]) -> Tuple[List[str], List[Tuple[Option
             grouped.setdefault(row.timestamp, {})[row.signal_id] = row.value
 
     scans = [
-        (timestamp, {signal_id: grouped[timestamp].get(signal_id) for signal_id in signal_ids})
+        (
+            timestamp,
+            {signal_id: grouped[timestamp].get(signal_id) for signal_id in signal_ids},
+        )
         for timestamp in sorted(grouped)
     ]
     scans.extend(
@@ -143,7 +148,9 @@ def build_scans(rows: Iterable[SignalRow]) -> Tuple[List[str], List[Tuple[Option
     return signal_ids, scans
 
 
-def derive_scan_interval(timestamps: Iterable[Optional[float]], default_interval: float = 0.1) -> float:
+def derive_scan_interval(
+    timestamps: Iterable[Optional[float]], default_interval: float = 0.1
+) -> float:
     deltas = []
     last_timestamp: Optional[float] = None
 
@@ -184,7 +191,7 @@ def analyze_command(args):
     signal_ids, scans = build_scans(rows)
     scan_interval = derive_scan_interval(
         (timestamp for timestamp, _ in scans),
-        default_interval=get_engine_scan_interval(config)
+        default_interval=get_engine_scan_interval(config),
     )
     auto_register = get_engine_auto_register(config)
     max_signals = get_engine_max_signals(config)
@@ -219,8 +226,7 @@ def analyze_command(args):
     )
     for signal_id in signal_ids:
         engine.register_signal(
-            signal_id,
-            build_signal_config(config, signal_id, scan_interval)
+            signal_id, build_signal_config(config, signal_id, scan_interval)
         )
 
     # Process signals
@@ -240,9 +246,11 @@ def analyze_command(args):
     for sig_id, stats in all_stats.items():
         print(f"{sig_id}:")
         print(f"  Samples Processed: {stats['sample_count']}")
-        print(f"  Missing Samples: {stats['missing_count']} ({stats['missing_ratio']:.1%})")
+        print(
+            f"  Missing Samples: {stats['missing_count']} ({stats['missing_ratio']:.1%})"
+        )
 
-        sqi_stats = stats['sqi_stats']
+        sqi_stats = stats["sqi_stats"]
         print(f"  Signal Quality:")
         print(f"    Mean SQI: {sqi_stats['mean_sqi']:.1f}")
         print(f"    Min SQI:  {sqi_stats['min_sqi']:.1f}")
@@ -253,11 +261,14 @@ def analyze_command(args):
     if args.plot:
         try:
             import matplotlib.pyplot as plt
+
             print("Generating plots...")
             plot_results(engine, signal_ids, rows)
             print("Plot displayed.")
         except ImportError:
-            print("Warning: matplotlib not available. Install with: pip install matplotlib")
+            print(
+                "Warning: matplotlib not available. Install with: pip install matplotlib"
+            )
 
     return 0
 
@@ -284,9 +295,7 @@ def simulate_command(args):
         scan_interval=scan_interval,
         auto_register=get_engine_auto_register(config),
         max_signals=get_engine_max_signals(config),
-        treat_missing_signals_as_none=get_engine_treat_missing_signals_as_none(
-            config
-        ),
+        treat_missing_signals_as_none=get_engine_treat_missing_signals_as_none(config),
         unknown_signal_policy=get_engine_unknown_signal_policy(config),
         max_signals_policy=get_engine_max_signals_policy(config),
         log_scan_timing=logging_settings["log_scan_timing"],
@@ -300,8 +309,7 @@ def simulate_command(args):
         load_shed_skip_fft=performance_settings["load_shed_skip_fft"],
     )
     engine.register_signal(
-        "SIM_SIGNAL",
-        build_signal_config(config, "SIM_SIGNAL", scan_interval)
+        "SIM_SIGNAL", build_signal_config(config, "SIM_SIGNAL", scan_interval)
     )
 
     # Generate signal
@@ -314,8 +322,9 @@ def simulate_command(args):
     # Process signal
     print("Processing...")
     results = []
-    for value in signal:
-        result = engine.update_single("SIM_SIGNAL", value)
+    for index, value in enumerate(signal):
+        timestamp = index * scan_interval
+        result = engine.update_single("SIM_SIGNAL", value, timestamp=timestamp)
         if result:
             results.append(result)
 
@@ -327,7 +336,7 @@ def simulate_command(args):
     print()
 
     stats = engine.get_signal_stats("SIM_SIGNAL")
-    sqi_stats = stats['sqi_stats']
+    sqi_stats = stats["sqi_stats"]
 
     print(f"Samples Processed: {stats['sample_count']}")
     print(f"Signal Quality:")
@@ -349,11 +358,14 @@ def simulate_command(args):
     if args.plot:
         try:
             import matplotlib.pyplot as plt
+
             print("Generating plots...")
             plot_simulation(signal, results)
             print("Plot displayed.")
         except ImportError:
-            print("Warning: matplotlib not available. Install with: pip install matplotlib")
+            print(
+                "Warning: matplotlib not available. Install with: pip install matplotlib"
+            )
 
     return 0
 
@@ -389,7 +401,7 @@ def incidents_command(args):
     signal_ids, scans = build_scans(rows)
     scan_interval = derive_scan_interval(
         (timestamp for timestamp, _ in scans),
-        default_interval=get_engine_scan_interval(config)
+        default_interval=get_engine_scan_interval(config),
     )
     auto_register = get_engine_auto_register(config)
     max_signals = get_engine_max_signals(config)
@@ -418,8 +430,7 @@ def incidents_command(args):
     )
     for signal_id in signal_ids:
         engine.register_signal(
-            signal_id,
-            build_signal_config(config, signal_id, scan_interval)
+            signal_id, build_signal_config(config, signal_id, scan_interval)
         )
 
     out_path = Path(args.out)
@@ -503,9 +514,7 @@ def incidents_command(args):
                         "event_type": event.event_type.value,
                         "severity": incident.severity.value,
                         "cause": incident.cause.value,
-                        "degraded_fraction": details.get(
-                            "degraded_fraction", 0.0
-                        ),
+                        "degraded_fraction": details.get("degraded_fraction", 0.0),
                         "degraded_members": list(incident.degraded_members),
                         "counts": {
                             "members_total": details.get("members_total", 0),
@@ -529,8 +538,7 @@ def incidents_command(args):
     print(f"  Resolved: {resolved}")
     if cause_counts:
         top_causes = ", ".join(
-            f"{cause.value} ({count})"
-            for cause, count in cause_counts.most_common(3)
+            f"{cause.value} ({count})" for cause, count in cause_counts.most_common(3)
         )
         print(f"  Top causes: {top_causes}")
     else:
@@ -618,16 +626,16 @@ def plot_results(engine, signal_ids, rows):
             signals_data[row.signal_id].append(row.value)
 
     # Create plots
-    fig, axes = plt.subplots(len(signals_data), 1, figsize=(12, 4*len(signals_data)))
+    fig, axes = plt.subplots(len(signals_data), 1, figsize=(12, 4 * len(signals_data)))
 
     if len(signals_data) == 1:
         axes = [axes]
 
     for ax, (sig_id, values) in zip(axes, signals_data.items()):
-        ax.plot(values, label='Raw Signal', alpha=0.7)
-        ax.set_title(f'{sig_id}')
-        ax.set_xlabel('Sample')
-        ax.set_ylabel('Value')
+        ax.plot(values, label="Raw Signal", alpha=0.7)
+        ax.set_title(f"{sig_id}")
+        ax.set_xlabel("Sample")
+        ax.set_ylabel("Value")
         ax.legend()
         ax.grid(True, alpha=0.3)
 
@@ -648,22 +656,22 @@ def plot_simulation(signal, results):
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
 
     # Signal plot
-    ax1.plot(raw, label='Raw Signal', alpha=0.5)
-    ax1.plot(filtered, label='Filtered Signal', linewidth=2)
-    ax1.set_title('Signal Processing')
-    ax1.set_xlabel('Sample')
-    ax1.set_ylabel('Value')
+    ax1.plot(raw, label="Raw Signal", alpha=0.5)
+    ax1.plot(filtered, label="Filtered Signal", linewidth=2)
+    ax1.set_title("Signal Processing")
+    ax1.set_xlabel("Sample")
+    ax1.set_ylabel("Value")
     ax1.legend()
     ax1.grid(True, alpha=0.3)
 
     # SQI plot
-    ax2.plot(sqi, color='green', linewidth=2)
-    ax2.axhline(y=75, color='yellow', linestyle='--', alpha=0.5, label='Good Threshold')
-    ax2.axhline(y=50, color='orange', linestyle='--', alpha=0.5, label='Fair Threshold')
-    ax2.axhline(y=25, color='red', linestyle='--', alpha=0.5, label='Poor Threshold')
-    ax2.set_title('Signal Quality Index (SQI)')
-    ax2.set_xlabel('Sample')
-    ax2.set_ylabel('SQI')
+    ax2.plot(sqi, color="green", linewidth=2)
+    ax2.axhline(y=75, color="yellow", linestyle="--", alpha=0.5, label="Good Threshold")
+    ax2.axhline(y=50, color="orange", linestyle="--", alpha=0.5, label="Fair Threshold")
+    ax2.axhline(y=25, color="red", linestyle="--", alpha=0.5, label="Poor Threshold")
+    ax2.set_title("Signal Quality Index (SQI)")
+    ax2.set_xlabel("Sample")
+    ax2.set_ylabel("SQI")
     ax2.set_ylim(0, 100)
     ax2.legend()
     ax2.grid(True, alpha=0.3)
@@ -675,170 +683,137 @@ def plot_simulation(signal, results):
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description='Signal Quality Engine (SQE) - DSP analysis for SCADA signals'
+        description="Signal Quality Engine (SQE) - DSP analysis for SCADA signals"
     )
 
-    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Analyze command
-    analyze_parser = subparsers.add_parser('analyze', help='Analyze signal from file')
+    analyze_parser = subparsers.add_parser("analyze", help="Analyze signal from file")
     analyze_parser.add_argument(
-        '--signal-file',
+        "--signal-file",
         required=True,
         help=(
-            'Path to CSV file containing signal data. '
-            'Required columns: timestamp, signal_id, value. '
-            'Empty timestamp/value entries are treated as missing (None).'
-        )
+            "Path to CSV file containing signal data. "
+            "Required columns: timestamp, signal_id, value. "
+            "Empty timestamp/value entries are treated as missing (None)."
+        ),
     )
     analyze_parser.add_argument(
-        '--plot',
-        action='store_true',
-        help='Generate plots (requires matplotlib)'
+        "--plot", action="store_true", help="Generate plots (requires matplotlib)"
     )
     analyze_parser.add_argument(
-        '--config',
-        help='Optional path to YAML config to override defaults'
+        "--config", help="Optional path to YAML config to override defaults"
     )
 
     # Simulate command
-    simulate_parser = subparsers.add_parser('simulate', help='Simulate signal processing')
+    simulate_parser = subparsers.add_parser(
+        "simulate", help="Simulate signal processing"
+    )
     simulate_parser.add_argument(
-        '--duration',
+        "--duration",
         type=int,
         default=100,
-        help='Number of samples to simulate (default: 100)'
+        help="Number of samples to simulate (default: 100)",
     )
     simulate_parser.add_argument(
-        '--noise',
-        type=float,
-        default=1.0,
-        help='Noise level (std dev) (default: 1.0)'
+        "--noise", type=float, default=1.0, help="Noise level (std dev) (default: 1.0)"
     )
     simulate_parser.add_argument(
-        '--plot',
-        action='store_true',
-        help='Generate plots (requires matplotlib)'
+        "--plot", action="store_true", help="Generate plots (requires matplotlib)"
     )
     simulate_parser.add_argument(
-        '--config',
-        help='Optional path to YAML config to override defaults'
+        "--config", help="Optional path to YAML config to override defaults"
     )
 
     # Version command
-    version_parser = subparsers.add_parser('version', help='Show version')
+    version_parser = subparsers.add_parser("version", help="Show version")
 
     # Incidents command
     incidents_parser = subparsers.add_parser(
-        'incidents',
-        help='Generate incident events from signal file'
+        "incidents", help="Generate incident events from signal file"
     )
     incidents_parser.add_argument(
-        '--signal-file',
+        "--signal-file",
         required=True,
         help=(
-            'Path to CSV file containing signal data. '
-            'Required columns: timestamp, signal_id, value.'
-        )
+            "Path to CSV file containing signal data. "
+            "Required columns: timestamp, signal_id, value."
+        ),
     )
     incidents_parser.add_argument(
-        '--config',
-        help='Optional path to YAML config to override defaults'
+        "--config", help="Optional path to YAML config to override defaults"
     )
     incidents_parser.add_argument(
-        '--out',
-        default='incidents.jsonl',
-        help='Output JSONL file for incident events'
+        "--out", default="incidents.jsonl", help="Output JSONL file for incident events"
     )
     incidents_parser.add_argument(
-        '--groups-config',
-        help='Optional path to group incident config YAML'
+        "--groups-config", help="Optional path to group incident config YAML"
     )
 
     # Replay command
     replay_parser = subparsers.add_parser(
-        'replay',
-        help='Replay scan inputs into deterministic outputs'
+        "replay", help="Replay scan inputs into deterministic outputs"
     )
     replay_parser.add_argument(
-        '--in',
-        dest='input_jsonl',
+        "--in",
+        dest="input_jsonl",
         required=True,
-        help='Input JSONL file of scan records'
+        help="Input JSONL file of scan records",
     )
     replay_parser.add_argument(
-        '--config',
-        required=True,
-        help='Path to SQE config YAML'
+        "--config", required=True, help="Path to SQE config YAML"
     )
     replay_parser.add_argument(
-        '--out',
-        required=True,
-        help='Output directory for replay artifacts'
+        "--out", required=True, help="Output directory for replay artifacts"
     )
     replay_parser.add_argument(
-        '--groups-config',
-        help='Optional path to group incident config YAML'
+        "--groups-config", help="Optional path to group incident config YAML"
     )
 
     # Eval command
     eval_parser = subparsers.add_parser(
-        'eval',
-        help='Evaluate replay outputs against incident labels'
+        "eval", help="Evaluate replay outputs against incident labels"
     )
     eval_parser.add_argument(
-        '--replay-out',
+        "--replay-out",
         required=True,
-        help='Replay output directory containing incidents.jsonl'
+        help="Replay output directory containing incidents.jsonl",
     )
     eval_parser.add_argument(
-        '--labels',
-        required=True,
-        help='Path to YAML/JSON label file'
+        "--labels", required=True, help="Path to YAML/JSON label file"
     )
     eval_parser.add_argument(
-        '--out-json',
-        help='Optional path to write metrics JSON output'
+        "--out-json", help="Optional path to write metrics JSON output"
     )
 
     # Offline tuning command
     tuning_parser = subparsers.add_parser(
-        'offline-tuning',
-        help='Run offline tuning sweeps for incident policy and SQI'
+        "offline-tuning", help="Run offline tuning sweeps for incident policy and SQI"
     )
     tuning_parser.add_argument(
-        '--replay-input',
-        required=True,
-        help='Path to replay input JSONL'
+        "--replay-input", required=True, help="Path to replay input JSONL"
     )
     tuning_parser.add_argument(
-        '--labels',
-        required=True,
-        help='Path to incident labels YAML/JSON'
+        "--labels", required=True, help="Path to incident labels YAML/JSON"
     )
     tuning_parser.add_argument(
-        '--sweep-config',
-        required=True,
-        help='Path to sweep config YAML'
+        "--sweep-config", required=True, help="Path to sweep config YAML"
     )
     tuning_parser.add_argument(
-        '--out-dir',
-        required=True,
-        help='Directory to store sweep outputs'
+        "--out-dir", required=True, help="Directory to store sweep outputs"
     )
     tuning_parser.add_argument(
-        '--base-config',
-        help='Optional base config YAML to override defaults'
+        "--base-config", help="Optional base config YAML to override defaults"
     )
     tuning_parser.add_argument(
-        '--groups-config',
-        help='Optional groups config YAML for group incidents'
+        "--groups-config", help="Optional groups config YAML for group incidents"
     )
     tuning_parser.add_argument(
-        '--mode',
-        choices=['incident_policy', 'sqi', 'all'],
-        default='all',
-        help='Which sweep to run (default: all)'
+        "--mode",
+        choices=["incident_policy", "sqi", "all"],
+        default="all",
+        help="Which sweep to run (default: all)",
     )
 
     # Parse arguments
@@ -849,19 +824,19 @@ def main():
         return 1
 
     # Execute command
-    if args.command == 'analyze':
+    if args.command == "analyze":
         return analyze_command(args)
-    elif args.command == 'simulate':
+    elif args.command == "simulate":
         return simulate_command(args)
-    elif args.command == 'version':
+    elif args.command == "version":
         return version_command(args)
-    elif args.command == 'incidents':
+    elif args.command == "incidents":
         return incidents_command(args)
-    elif args.command == 'replay':
+    elif args.command == "replay":
         return replay_command(args)
-    elif args.command == 'eval':
+    elif args.command == "eval":
         return eval_command(args)
-    elif args.command == 'offline-tuning':
+    elif args.command == "offline-tuning":
         from sqe.tools.offline_tuning import run_offline_tuning
 
         return run_offline_tuning(args)
@@ -870,5 +845,5 @@ def main():
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())

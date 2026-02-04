@@ -45,7 +45,11 @@ def test_bad_quality_treated_as_missing():
 def test_uncertain_quality_affects_missing_ratio():
     processor = SignalProcessor(SignalConfig(signal_id="sig", missing_window=1))
 
-    processed = processor.update(10.0, quality=SampleQuality.UNCERTAIN)
+    processed = processor.update(
+        10.0,
+        timestamp=1.0,
+        quality=SampleQuality.UNCERTAIN,
+    )
 
     assert processed is not None
     assert processor.get_effective_missing_ratio() == 0.5

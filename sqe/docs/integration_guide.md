@@ -39,6 +39,10 @@ signal_config = build_signal_config(config, signal_id="AI_001", sample_interval=
 engine.register_signal("AI_001", signal_config)
 ```
 
+By default, FFT analysis is disabled and no reference frequencies are configured. To enable
+FFT processing, set `frequency.enable_fft: true` and provide reference frequencies under
+`frequency.default_references` (or per-signal overrides) in your YAML.
+
 ### Mapping of YAML Keys to Engine Settings
 
 The merged configuration uses the following key mapping:
@@ -660,7 +664,10 @@ print(f"Total for 100 signals: {total_per_signal * 100 / 1024 / 1024:.1f} MB")
 Debug low SQI scores:
 
 ```python
-result = engine.update_single("AI_001", value)
+import time
+
+scan_timestamp = time.time()
+result = engine.update_single("AI_001", value, timestamp=scan_timestamp)
 
 # Examine SQI components
 print(f"SQI: {result.sqi}")

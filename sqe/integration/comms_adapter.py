@@ -15,15 +15,17 @@ from sqe.core.engine import SignalQualityEngine
 @dataclass
 class CommsArtifact:
     """Deprecated communication artifact configuration."""
-    jitter_ms: float = 0.0           # Random timing jitter (milliseconds)
+
+    jitter_ms: float = 0.0  # Random timing jitter (milliseconds)
     dropout_probability: float = 0.0  # Probability of sample dropout (0-1)
-    late_probability: float = 0.0     # Probability of late arrival (0-1)
-    late_delay_ms: float = 0.0        # Delay for late samples (milliseconds)
+    late_probability: float = 0.0  # Probability of late arrival (0-1)
+    late_delay_ms: float = 0.0  # Delay for late samples (milliseconds)
 
 
 @dataclass(frozen=True)
 class CommsTelemetry:
     """Raw transport telemetry for a single poll."""
+
     poll_success: bool
     rtt_ms: float
     jitter_ms: float
@@ -33,6 +35,7 @@ class CommsTelemetry:
 @dataclass(frozen=True)
 class CommsAdapterSettings:
     """Settings for comms adapter defaults."""
+
     track_jitter: bool = True
     track_dropouts: bool = True
     track_late_arrivals: bool = True
@@ -45,6 +48,7 @@ class CommsAdapterSettings:
 @dataclass(frozen=True)
 class CommsHealth:
     """Derived communication health state."""
+
     poll_success: bool
     rtt_ms: float
     jitter_ms: float
@@ -55,6 +59,7 @@ class CommsHealth:
 @dataclass
 class CommsStats:
     """Communication statistics."""
+
     total_polls: int = 0
     failed_polls: int = 0
     late_samples: int = 0
@@ -98,6 +103,7 @@ class CommsAdapter:
         self,
         signal_values: Dict[str, Optional[float]],
         telemetry_by_signal: Optional[Dict[str, CommsTelemetry]] = None,
+        timestamp: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Process scan with communication artifacts.
@@ -105,6 +111,7 @@ class CommsAdapter:
         Args:
             signal_values: Raw signal values
             telemetry_by_signal: Optional transport telemetry keyed by signal_id
+            timestamp: Optional scan timestamp override
 
         Returns:
             Processed results with comms statistics
@@ -119,14 +126,18 @@ class CommsAdapter:
                 if not telemetry.poll_success:
                     artifacted_signals[signal_id] = None
 
+        scan_timestamp = self.engine._resolve_scan_timestamp(timestamp)
+
         # Process through engine
-        processed = self.engine.update(artifacted_signals)
+        processed = self.engine.update(
+            artifacted_signals,
+            timestamp=scan_timestamp,
+        )
 
         # Build result with comms stats
         return {
             "processed_signals": {
-                sig_id: sig.to_dict()
-                for sig_id, sig in processed.items()
+                sig_id: sig.to_dict() for sig_id, sig in processed.items()
             },
             "comms_stats": self.get_stats(),
             "comms_health_by_signal": {
@@ -188,7 +199,9 @@ class CommsAdapter:
             "late_samples": self.stats.late_samples,
             "jittered_samples": self.stats.jittered_samples,
             "poll_failure_rate": failed_polls / total_polls if total_polls > 0 else 0,
-            "late_rate": self.stats.late_samples / total_polls if total_polls > 0 else 0,
+            "late_rate": (
+                self.stats.late_samples / total_polls if total_polls > 0 else 0
+            ),
             "average_jitter_ms": self.stats.average_jitter_ms,
             "average_rtt_ms": self.stats.average_rtt_ms,
             "max_dropout_streak": self.stats.max_dropout_streak,
@@ -285,9 +298,9 @@ class CommsQualityMonitor:
 
         # Trim to window size
         if len(self.dropout_history) > self.window_size:
-            self.dropout_history = self.dropout_history[-self.window_size:]
+            self.dropout_history = self.dropout_history[-self.window_size :]
         if len(self.latency_history) > self.window_size:
-            self.latency_history = self.latency_history[-self.window_size:]
+            self.latency_history = self.latency_history[-self.window_size :]
 
         # Calculate trends
         dropout_trend = self._calculate_trend(self.dropout_history)
@@ -306,7 +319,7 @@ class CommsQualityMonitor:
             "dropout_trend": dropout_trend,
             "latency_trend": latency_trend,
             "quality_score": quality_score,
-            "quality_class": self._classify_quality(quality_score)
+            "quality_class": self._classify_quality(quality_score),
         }
 
     def _calculate_trend(self, history: List[float]) -> str:
