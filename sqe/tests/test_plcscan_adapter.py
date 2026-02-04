@@ -11,24 +11,16 @@ def test_plcscan_adapter_timing_metrics(monkeypatch):
     times = iter(
         [
             0.0,
-            0.005,
-            0.01,
             0.02,
             0.1,
-            0.105,
-            0.11,
             0.12,
             0.2,
-            0.205,
-            0.21,
             0.22,
         ]
     )
     perf_times = iter([0.0, 0.02, 0.1, 0.12, 0.2, 0.22])
     monkeypatch.setattr(plcscan_adapter.time, "time", lambda: next(times))
-    monkeypatch.setattr(
-        plcscan_adapter.time, "perf_counter", lambda: next(perf_times)
-    )
+    monkeypatch.setattr(plcscan_adapter.time, "perf_counter", lambda: next(perf_times))
 
     engine = SignalQualityEngine(scan_interval=0.1)
     engine.register_signal("sig1")
@@ -54,14 +46,12 @@ def test_plcscan_adapter_scan_error(monkeypatch):
     times = iter([0.0, 0.02])
     perf_times = iter([0.0, 0.02])
     monkeypatch.setattr(plcscan_adapter.time, "time", lambda: next(times))
-    monkeypatch.setattr(
-        plcscan_adapter.time, "perf_counter", lambda: next(perf_times)
-    )
+    monkeypatch.setattr(plcscan_adapter.time, "perf_counter", lambda: next(perf_times))
 
     engine = SignalQualityEngine(scan_interval=0.1)
     adapter = PLCScanAdapter(engine, scan_interval=0.1, warn_on_overrun=False)
 
-    def raise_error(_signals):
+    def raise_error(_signals, *, timestamp=None):
         raise RuntimeError("boom")
 
     engine.update = raise_error
@@ -77,9 +67,7 @@ def test_plcscan_adapter_reset_metrics(monkeypatch):
     times = iter([0.0, 0.05, 0.1, 0.2])
     perf_times = iter([0.0, 0.2])
     monkeypatch.setattr(plcscan_adapter.time, "time", lambda: next(times))
-    monkeypatch.setattr(
-        plcscan_adapter.time, "perf_counter", lambda: next(perf_times)
-    )
+    monkeypatch.setattr(plcscan_adapter.time, "perf_counter", lambda: next(perf_times))
 
     engine = SignalQualityEngine(scan_interval=0.1)
     engine.register_signal("sig1")

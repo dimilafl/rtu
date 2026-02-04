@@ -5,8 +5,8 @@ Integrates all DSP components into a unified signal processing pipeline.
 Designed for deterministic, real-time operation within PLC scan cycles.
 """
 
-from typing import Dict, Optional, List, Deque
-from dataclasses import dataclass, asdict
+from typing import Dict, Optional, List, Deque, Callable
+from dataclasses import dataclass, asdict, field
 from collections import deque
 import logging
 import time
@@ -41,10 +41,10 @@ class SignalConfig:
     spike_k_sigma: float = 3.0
 
     # Frequency parameters
-    reference_frequencies: List[float] = None
+    reference_frequencies: List[float] = field(default_factory=list)
     sample_interval: float = 0.1
     freq_window: int = 50
-    enable_fft: bool = True
+    enable_fft: bool = False
 
     # Missing sample tracking
     missing_window: int = 100
@@ -142,8 +142,7 @@ class SignalConfig:
             )
 
         if self.reference_frequencies is None:
-            # Default frequencies: 0.1 Hz, 0.5 Hz, 1 Hz
-            self.reference_frequencies = [0.1, 0.5, 1.0]
+            self.reference_frequencies = []
 
 
 @dataclass
@@ -302,7 +301,7 @@ class SignalProcessor:
 
         Args:
             x: Raw signal value (None if missing)
-            timestamp: Optional sample timestamp override
+            timestamp: Sample timestamp (required for non-missing samples)
 
         Returns:
             ProcessedSignal with all analysis results, or None if sample is missing
@@ -325,7 +324,7 @@ class SignalProcessor:
             return None
 
         if timestamp is None:
-            timestamp = time.time()
+            raise ValueError("timestamp is required for non-missing samples")
         effective_timestamp = (
             source_timestamp if source_timestamp is not None else timestamp
         )
@@ -477,6 +476,7 @@ class SignalQualityEngine:
         load_shed_oscillation_cadence: int = 3,
         load_shed_skip_fft: bool = True,
         logger: Optional[logging.Logger] = None,
+        clock: Optional[Callable[[], float]] = None,
     ):
         """
         Initialize Signal Quality Engine.
@@ -517,15 +517,19 @@ class SignalQualityEngine:
         )
         self._scan_duration_p95: Optional[float] = None
         self._load_shed_active = False
-        self._load_shed_oscillation_cadence = max(
-            1, load_shed_oscillation_cadence
-        )
+        self._load_shed_oscillation_cadence = max(1, load_shed_oscillation_cadence)
         self._load_shed_skip_fft = load_shed_skip_fft
+        self._clock = clock
+
+    def _resolve_scan_timestamp(self, timestamp: Optional[float]) -> float:
+        if timestamp is not None:
+            return timestamp
+        if self._clock is None:
+            raise ValueError("scan timestamp is required when no clock is configured")
+        return self._clock()
 
     def register_signal(
-        self,
-        signal_id: str,
-        config: Optional[SignalConfig] = None
+        self, signal_id: str, config: Optional[SignalConfig] = None
     ) -> bool:
         """
         Register a new signal for processing.
@@ -586,49 +590,48 @@ class SignalQualityEngine:
 
         Args:
             signals: Dictionary mapping signal_id to raw value (None if missing)
-            timestamp: Optional scan timestamp override
+            timestamp: Scan timestamp (required unless a clock is configured)
 
         Returns:
             Dictionary mapping signal_id to ProcessedSignal
         """
         self.scan_count += 1
-        current_time = time.time()
+        scan_timestamp = self._resolve_scan_timestamp(timestamp)
 
         # Track scan timing
         if self.last_scan_time is not None:
-            actual_interval = current_time - self.last_scan_time
+            actual_interval = scan_timestamp - self.last_scan_time
             if self.log_scan_timing:
                 self.logger.debug("Scan interval %.4fs", actual_interval)
 
-        self.last_scan_time = current_time
+        self.last_scan_time = scan_timestamp
 
         results = {}
         # Cache baseline stats per signal for this scan. The cache is invalidated
         # after each scan because variance buffers update with new samples.
         baseline_stats_cache: Dict[str, Dict[str, float]] = {}
 
-        signal_ids = set(signals.keys())
-        if self.treat_missing_signals_as_none:
-            signal_ids |= set(self.processors.keys())
-        ordered_signal_ids = sorted(signal_ids)
+        registered_ids = [
+            signal_id
+            for signal_id in self._registration_order
+            if signal_id in self.processors
+        ]
+        unknown_ids = [
+            signal_id
+            for signal_id in signals.keys()
+            if signal_id not in self.processors
+        ]
 
-        for signal_id in ordered_signal_ids:
-            if signal_id not in self.processors:
-                if not self.auto_register:
-                    if self.unknown_signal_policy == "ignore":
-                        continue
-                    raise ValueError(f"Signal {signal_id} not registered")
-                # Auto-register unknown signals
-                if not self.register_signal(signal_id):
-                    continue
-
+        for signal_id in registered_ids:
+            if not self.treat_missing_signals_as_none and signal_id not in signals:
+                continue
             value = signals.get(signal_id)
             processor = self.processors[signal_id]
             prev_quality = processor.last_quality_class
             scan_start = time.perf_counter() if self.compute_budget_s else None
             processed = processor.update(
                 value,
-                timestamp=timestamp,
+                timestamp=scan_timestamp,
                 baseline_stats_cache=baseline_stats_cache,
                 load_shed=self._load_shed_active,
                 oscillation_cadence=self._load_shed_oscillation_cadence,
@@ -663,6 +666,56 @@ class SignalQualityEngine:
                     )
                 results[signal_id] = processed
 
+        if unknown_ids:
+            if not self.auto_register:
+                if self.unknown_signal_policy == "ignore":
+                    return results
+                unknown_id = sorted(unknown_ids)[0]
+                raise ValueError(f"Signal {unknown_id} not registered")
+            for signal_id in sorted(unknown_ids):
+                if not self.register_signal(signal_id):
+                    continue
+                value = signals.get(signal_id)
+                processor = self.processors[signal_id]
+                prev_quality = processor.last_quality_class
+                scan_start = time.perf_counter() if self.compute_budget_s else None
+                processed = processor.update(
+                    value,
+                    timestamp=scan_timestamp,
+                    baseline_stats_cache=baseline_stats_cache,
+                    load_shed=self._load_shed_active,
+                    oscillation_cadence=self._load_shed_oscillation_cadence,
+                    skip_fft=self._load_shed_skip_fft,
+                )
+                if scan_start is not None:
+                    scan_duration = time.perf_counter() - scan_start
+                    self._update_load_shedding(scan_duration)
+                if processed is not None:
+                    if (
+                        self.log_quality_changes
+                        and prev_quality is not None
+                        and prev_quality != processed.quality_class
+                    ):
+                        self.logger.info(
+                            "Signal %s quality changed %s -> %s",
+                            signal_id,
+                            prev_quality,
+                            processed.quality_class,
+                        )
+                    if self.log_anomalies and (
+                        processed.drift_type != "none"
+                        or processed.is_spike
+                        or processed.alert_level != "none"
+                    ):
+                        self.logger.warning(
+                            "Signal %s anomaly drift=%s spike=%s alert=%s",
+                            signal_id,
+                            processed.drift_type,
+                            processed.is_spike,
+                            processed.alert_level,
+                        )
+                    results[signal_id] = processed
+
         return results
 
     def update_samples(
@@ -672,34 +725,34 @@ class SignalQualityEngine:
     ) -> Dict[str, ProcessedSignal]:
         """Process one scan cycle for all signals with sample metadata."""
         self.scan_count += 1
-        current_time = time.time()
+        scan_timestamp = self._resolve_scan_timestamp(timestamp)
 
         if self.last_scan_time is not None:
-            actual_interval = current_time - self.last_scan_time
+            actual_interval = scan_timestamp - self.last_scan_time
             if self.log_scan_timing:
                 self.logger.debug("Scan interval %.4fs", actual_interval)
 
-        self.last_scan_time = current_time
+        self.last_scan_time = scan_timestamp
 
         results: Dict[str, ProcessedSignal] = {}
         # Cache baseline stats per signal for this scan. The cache is invalidated
         # after each scan because variance buffers update with new samples.
         baseline_stats_cache: Dict[str, Dict[str, float]] = {}
 
-        signal_ids = set(samples.keys())
-        if self.treat_missing_signals_as_none:
-            signal_ids |= set(self.processors.keys())
-        ordered_signal_ids = sorted(signal_ids)
+        registered_ids = [
+            signal_id
+            for signal_id in self._registration_order
+            if signal_id in self.processors
+        ]
+        unknown_ids = [
+            signal_id
+            for signal_id in samples.keys()
+            if signal_id not in self.processors
+        ]
 
-        for signal_id in ordered_signal_ids:
-            if signal_id not in self.processors:
-                if not self.auto_register:
-                    if self.unknown_signal_policy == "ignore":
-                        continue
-                    raise ValueError(f"Signal {signal_id} not registered")
-                if not self.register_signal(signal_id):
-                    continue
-
+        for signal_id in registered_ids:
+            if not self.treat_missing_signals_as_none and signal_id not in samples:
+                continue
             sample = samples.get(signal_id)
             if sample is None:
                 sample = Sample(value=None)
@@ -709,7 +762,7 @@ class SignalQualityEngine:
             scan_start = time.perf_counter() if self.compute_budget_s else None
             processed = processor.update(
                 sample.value,
-                timestamp=timestamp,
+                timestamp=scan_timestamp,
                 quality=sample.quality,
                 source_timestamp=sample.source_timestamp,
                 baseline_stats_cache=baseline_stats_cache,
@@ -745,6 +798,60 @@ class SignalQualityEngine:
                         processed.alert_level,
                     )
                 results[signal_id] = processed
+
+        if unknown_ids:
+            if not self.auto_register:
+                if self.unknown_signal_policy == "ignore":
+                    return results
+                unknown_id = sorted(unknown_ids)[0]
+                raise ValueError(f"Signal {unknown_id} not registered")
+            for signal_id in sorted(unknown_ids):
+                if not self.register_signal(signal_id):
+                    continue
+                sample = samples.get(signal_id)
+                if sample is None:
+                    sample = Sample(value=None)
+                processor = self.processors[signal_id]
+                prev_quality = processor.last_quality_class
+                scan_start = time.perf_counter() if self.compute_budget_s else None
+                processed = processor.update(
+                    sample.value,
+                    timestamp=scan_timestamp,
+                    quality=sample.quality,
+                    source_timestamp=sample.source_timestamp,
+                    baseline_stats_cache=baseline_stats_cache,
+                    load_shed=self._load_shed_active,
+                    oscillation_cadence=self._load_shed_oscillation_cadence,
+                    skip_fft=self._load_shed_skip_fft,
+                )
+                if scan_start is not None:
+                    scan_duration = time.perf_counter() - scan_start
+                    self._update_load_shedding(scan_duration)
+                if processed is not None:
+                    if (
+                        self.log_quality_changes
+                        and prev_quality is not None
+                        and prev_quality != processed.quality_class
+                    ):
+                        self.logger.info(
+                            "Signal %s quality changed %s -> %s",
+                            signal_id,
+                            prev_quality,
+                            processed.quality_class,
+                        )
+                    if self.log_anomalies and (
+                        processed.drift_type != "none"
+                        or processed.is_spike
+                        or processed.alert_level != "none"
+                    ):
+                        self.logger.warning(
+                            "Signal %s anomaly drift=%s spike=%s alert=%s",
+                            signal_id,
+                            processed.drift_type,
+                            processed.is_spike,
+                            processed.alert_level,
+                        )
+                    results[signal_id] = processed
 
         return results
 
