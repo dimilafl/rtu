@@ -39,6 +39,7 @@ def test_impact_report_counts(tmp_path):
         config_path=str(config_path),
         groups_config_path=str(groups_path),
         out_dir=str(out_dir),
+        run_id="test-run",
     )
 
     result = subprocess.run(

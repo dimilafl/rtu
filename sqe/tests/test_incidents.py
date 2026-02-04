@@ -60,6 +60,7 @@ def build_policy(
     end_persistence: int = 2,
     start_threshold: float = 50,
     end_threshold: float = 60,
+    state_retention_scans: int = 100,
 ) -> IncidentPolicy:
     return IncidentPolicy(
         start_sqi_threshold=start_threshold,
@@ -68,6 +69,7 @@ def build_policy(
         end_persistence_scans=end_persistence,
         critical_sqi_threshold=25,
         component_score_floor=70,
+        state_retention_scans=state_retention_scans,
         cause_priority=[
             IncidentCause.MISSING,
             IncidentCause.STALE,
@@ -86,7 +88,7 @@ def build_policy(
 
 def test_incident_opens_after_persistence():
     policy = build_policy(start_persistence=2)
-    engine = IncidentEngine(policy)
+    engine = IncidentEngine(policy, run_id="run-1")
     components = {
         "noise": 80,
         "drift": 80,
@@ -118,12 +120,12 @@ def test_incident_opens_after_persistence():
     )
     assert len(events) == 1
     assert events[0].event_type == IncidentEventType.STARTED
-    assert events[0].incident.incident_id == "sig:0"
+    assert events[0].incident.incident_id == "run-1:sig:0"
 
 
 def test_incident_resolves_after_recovery_persistence():
     policy = build_policy(start_persistence=1, end_persistence=2)
-    engine = IncidentEngine(policy)
+    engine = IncidentEngine(policy, run_id="run-2")
     components = {
         "noise": 80,
         "drift": 80,
@@ -168,7 +170,7 @@ def test_incident_resolves_after_recovery_persistence():
 
 def test_incident_threshold_hysteresis_and_persistence_boundaries():
     policy = build_policy(start_persistence=2, end_persistence=2)
-    engine = IncidentEngine(policy)
+    engine = IncidentEngine(policy, run_id="run-3")
     components = {
         "noise": 80,
         "drift": 80,
@@ -210,7 +212,7 @@ def test_incident_threshold_hysteresis_and_persistence_boundaries():
     )
     assert len(events) == 1
     assert events[0].event_type == IncidentEventType.STARTED
-    assert events[0].incident.incident_id == "sig:1"
+    assert events[0].incident.incident_id == "run-3:sig:1"
 
     events = engine.update_scan(
         scan_index=3,
@@ -242,12 +244,12 @@ def test_incident_threshold_hysteresis_and_persistence_boundaries():
     )
     assert len(events) == 1
     assert events[0].event_type == IncidentEventType.RESOLVED
-    assert events[0].incident.incident_id == "sig:1"
+    assert events[0].incident.incident_id == "run-3:sig:1"
 
 
 def test_incident_updates_on_cause_and_severity_change():
     policy = build_policy(start_persistence=1)
-    engine = IncidentEngine(policy)
+    engine = IncidentEngine(policy, run_id="run-4")
     components_drift = {
         "noise": 80,
         "drift": 60,
@@ -279,7 +281,7 @@ def test_incident_updates_on_cause_and_severity_change():
     )
     assert len(events) == 1
     assert events[0].event_type == IncidentEventType.STARTED
-    assert events[0].incident.incident_id == "sig:0"
+    assert events[0].incident.incident_id == "run-4:sig:0"
     assert events[0].incident.cause == IncidentCause.DRIFT
 
     events = engine.update_scan(
@@ -292,7 +294,7 @@ def test_incident_updates_on_cause_and_severity_change():
     )
     assert len(events) == 1
     assert events[0].event_type == IncidentEventType.UPDATED
-    assert events[0].incident.incident_id == "sig:0"
+    assert events[0].incident.incident_id == "run-4:sig:0"
     assert events[0].incident.cause == IncidentCause.NOISE
 
     events = engine.update_scan(
@@ -305,13 +307,13 @@ def test_incident_updates_on_cause_and_severity_change():
     )
     assert len(events) == 1
     assert events[0].event_type == IncidentEventType.UPDATED
-    assert events[0].incident.incident_id == "sig:0"
+    assert events[0].incident.incident_id == "run-4:sig:0"
     assert events[0].incident.severity == IncidentSeverity.CRITICAL
 
 
 def test_cause_selection_uses_lowest_component_score():
     policy = build_policy(start_persistence=1)
-    engine = IncidentEngine(policy)
+    engine = IncidentEngine(policy, run_id="run-5")
     components = {
         "noise": 80,
         "drift": 60,
@@ -337,7 +339,7 @@ def test_cause_selection_uses_lowest_component_score():
 
 def test_missing_only_incident_triggers():
     policy = build_policy(start_persistence=1)
-    engine = IncidentEngine(policy)
+    engine = IncidentEngine(policy, run_id="run-6")
 
     events = engine.update_scan(
         scan_index=0,
@@ -355,7 +357,7 @@ def test_realtime_service_process_scan_returns_incidents():
     policy = build_policy(start_persistence=1)
     engine = SignalQualityEngine()
     engine.register_signal("sig", SignalConfig(signal_id="sig"))
-    incident_engine = IncidentEngine(policy)
+    incident_engine = IncidentEngine(policy, run_id="run-7")
     service = RealtimeQualityService(engine, incident_engine)
 
     processed_scan, events, group_events = service.process_scan(
@@ -366,3 +368,104 @@ def test_realtime_service_process_scan_returns_incidents():
     assert len(events) == 1
     assert group_events == []
     assert service.scan_index == 1
+
+
+def test_incident_run_id_uniqueness():
+    policy = build_policy(start_persistence=1)
+    engine_a = IncidentEngine(policy, run_id="run-a")
+    engine_b = IncidentEngine(policy, run_id="run-b")
+    components = {
+        "noise": 60,
+        "drift": 90,
+        "spikes": 90,
+        "oscillation": 90,
+        "missing": 90,
+        "stale": 100,
+        "step": 100,
+        "plausibility": 100,
+    }
+
+    events_a = engine_a.update_scan(
+        scan_index=0,
+        timestamp=1.0,
+        processed_signals={"sig": make_processed("sig", 1.0, 40, components)},
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    events_b = engine_b.update_scan(
+        scan_index=0,
+        timestamp=1.0,
+        processed_signals={"sig": make_processed("sig", 1.0, 40, components)},
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+
+    assert events_a[0].incident.incident_id != events_b[0].incident.incident_id
+
+
+def test_incident_state_pruning():
+    policy = build_policy(start_persistence=1, state_retention_scans=1)
+    engine = IncidentEngine(policy, run_id="run-prune")
+    components = {
+        "noise": 80,
+        "drift": 80,
+        "spikes": 80,
+        "oscillation": 80,
+        "missing": 80,
+        "stale": 100,
+        "step": 100,
+        "plausibility": 100,
+    }
+
+    engine.update_scan(
+        scan_index=0,
+        timestamp=1.0,
+        processed_signals={"sig": make_processed("sig", 1.0, 90, components)},
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    assert "sig" in engine._state_by_signal
+
+    engine.update_scan(
+        scan_index=1,
+        timestamp=2.0,
+        processed_signals={},
+        missing_ratio_by_signal={},
+    )
+    assert "sig" in engine._state_by_signal
+
+    engine.update_scan(
+        scan_index=2,
+        timestamp=3.0,
+        processed_signals={},
+        missing_ratio_by_signal={},
+    )
+    assert "sig" not in engine._state_by_signal
+
+
+def test_active_incident_not_pruned():
+    policy = build_policy(start_persistence=1, state_retention_scans=1)
+    engine = IncidentEngine(policy, run_id="run-active")
+    components = {
+        "noise": 80,
+        "drift": 80,
+        "spikes": 80,
+        "oscillation": 80,
+        "missing": 80,
+        "stale": 100,
+        "step": 100,
+        "plausibility": 100,
+    }
+
+    engine.update_scan(
+        scan_index=0,
+        timestamp=1.0,
+        processed_signals={"sig": make_processed("sig", 1.0, 40, components)},
+        missing_ratio_by_signal={"sig": 0.0},
+    )
+    assert engine._state_by_signal["sig"].active_incident is not None
+
+    engine.update_scan(
+        scan_index=2,
+        timestamp=3.0,
+        processed_signals={},
+        missing_ratio_by_signal={},
+    )
+    assert "sig" in engine._state_by_signal

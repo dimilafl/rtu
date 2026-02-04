@@ -155,6 +155,86 @@ class TestSignalProcessor:
         assert processor.sample_count == 0
         assert processor.missing_count == 0
 
+    def test_step_detection_skipped_when_unweighted(self):
+        config = SignalConfig(
+            signal_id="test",
+            step_baseline_window=2,
+            step_threshold=0.1,
+            step_persistence_scans=1,
+            step_recovery_scans=1,
+            sqi_weights={
+                "noise": 0.5,
+                "drift": 0.5,
+                "spikes": 0.0,
+                "oscillation": 0.0,
+                "missing": 0.0,
+                "stale": 0.0,
+                "step": 0.0,
+                "plausibility": 0.0,
+            },
+        )
+        processor = SignalProcessor(config, required_causes=set())
+
+        processor.update(1.0, timestamp=1.0)
+        processor.update(1.0, timestamp=2.0)
+        processor.update(2.0, timestamp=3.0)
+        result = processor.update(2.0, timestamp=4.0)
+
+        assert result.step_change is False
+
+    def test_step_detection_runs_when_required(self):
+        config = SignalConfig(
+            signal_id="test",
+            step_baseline_window=2,
+            step_threshold=0.1,
+            step_persistence_scans=1,
+            step_recovery_scans=1,
+            sqi_weights={
+                "noise": 0.5,
+                "drift": 0.5,
+                "spikes": 0.0,
+                "oscillation": 0.0,
+                "missing": 0.0,
+                "stale": 0.0,
+                "step": 0.0,
+                "plausibility": 0.0,
+            },
+        )
+        processor = SignalProcessor(config, required_causes={"step"})
+
+        processor.update(1.0, timestamp=1.0)
+        processor.update(1.0, timestamp=2.0)
+        processor.update(2.0, timestamp=3.0)
+        result = processor.update(2.0, timestamp=4.0)
+
+        assert result.step_change is True
+
+    def test_stale_and_plausibility_skipped_when_unweighted(self):
+        config = SignalConfig(
+            signal_id="test",
+            stale_window=2,
+            stale_recovery_window=1,
+            plausibility_max=1.0,
+            sqi_weights={
+                "noise": 0.5,
+                "drift": 0.5,
+                "spikes": 0.0,
+                "oscillation": 0.0,
+                "missing": 0.0,
+                "stale": 0.0,
+                "step": 0.0,
+                "plausibility": 0.0,
+            },
+        )
+        processor = SignalProcessor(config, required_causes=set())
+
+        processor.update(1.0, timestamp=1.0)
+        stale_result = processor.update(1.0, timestamp=2.0)
+        plausibility_result = processor.update(5.0, timestamp=3.0)
+
+        assert stale_result.stale is False
+        assert plausibility_result.plausibility_violation is False
+
 
 class TestSignalQualityEngine:
     """Test main engine."""

@@ -312,6 +312,10 @@ def get_incident_policy(config: Dict[str, Any]) -> IncidentPolicy:
         "incidents.end_persistence_scans",
         incidents.get("end_persistence_scans", 10),
     )
+    state_retention_scans = require_positive_int(
+        "incidents.state_retention_scans",
+        incidents.get("state_retention_scans", 100000),
+    )
 
     priority_config = incidents.get("cause_priority")
     if priority_config:
@@ -357,6 +361,7 @@ def get_incident_policy(config: Dict[str, Any]) -> IncidentPolicy:
         end_persistence_scans=end_persistence_scans,
         critical_sqi_threshold=critical_sqi_threshold,
         component_score_floor=component_score_floor,
+        state_retention_scans=state_retention_scans,
         cause_priority=priority,
         hard_fault_causes=hard_fault_causes,
         emit_update_on_cause_change=bool(
@@ -471,6 +476,12 @@ def get_group_incident_policy(
     )
     emit_updates = bool(group_incidents.get("emit_updates", True))
 
+    state_retention_scans = read_int(
+        "group_incidents.state_retention_scans",
+        group_incidents.get("state_retention_scans"),
+        100000,
+    )
+
     return GroupIncidentPolicy(
         min_members_for_start=min_members,
         min_fraction_for_start=min_fraction,
@@ -478,6 +489,7 @@ def get_group_incident_policy(
         end_persistence_scans=end_persistence,
         critical_fraction_threshold=critical_fraction,
         emit_updates=emit_updates,
+        state_retention_scans=state_retention_scans,
     )
 
 

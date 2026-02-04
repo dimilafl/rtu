@@ -22,6 +22,7 @@ def test_replay_outputs_are_deterministic(tmp_path):
         config_path=str(config_path),
         groups_config_path=str(groups_path),
         out_dir=str(out_dir),
+        run_id="test-run",
     )
     assert (out_dir / "incidents.jsonl").read_text() == expected_incidents
     assert (out_dir / "scans.jsonl").read_text() == expected_scans
@@ -33,6 +34,7 @@ def test_replay_outputs_are_deterministic(tmp_path):
         config_path=str(config_path),
         groups_config_path=str(groups_path),
         out_dir=str(out_dir_repeat),
+        run_id="test-run",
     )
     assert (out_dir_repeat / "incidents.jsonl").read_text() == expected_incidents
     assert (out_dir_repeat / "scans.jsonl").read_text() == expected_scans
@@ -58,6 +60,7 @@ def test_replay_metadata_fixture(tmp_path):
         config_path=str(config_path),
         groups_config_path=str(groups_path),
         out_dir=str(out_dir),
+        run_id="test-run",
     )
     assert (out_dir / "incidents.jsonl").read_text() == expected_incidents
     assert (out_dir / "scans.jsonl").read_text() == expected_scans

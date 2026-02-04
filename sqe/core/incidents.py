@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
+import uuid
 
 from sqe.core.engine import ProcessedSignal
 from sqe.schema import SCHEMA_VERSION
@@ -47,6 +48,7 @@ class IncidentPolicy:
     end_persistence_scans: int
     critical_sqi_threshold: float
     component_score_floor: float
+    state_retention_scans: int = 100000
     cause_priority: List[IncidentCause] = field(default_factory=list)
     hard_fault_causes: List[IncidentCause] = field(default_factory=list)
     emit_update_on_cause_change: bool = True
@@ -116,10 +118,11 @@ CAUSE_ACTIONS = {
 class IncidentEngine:
     """Scan-driven incident engine for SQI outputs."""
 
-    def __init__(self, policy: IncidentPolicy) -> None:
+    def __init__(self, policy: IncidentPolicy, *, run_id: Optional[str] = None) -> None:
         self.policy = policy
         self._state_by_signal: Dict[str, _SignalIncidentState] = {}
         self._cause_priority = list(policy.cause_priority)
+        self.run_id = run_id or uuid.uuid4().hex
 
     def update_scan(
         self,
@@ -162,7 +165,7 @@ class IncidentEngine:
                         scan_index - self.policy.start_persistence_scans + 1
                     )
                     incident = QualityIncident(
-                        incident_id=f"{signal_id}:{start_scan_index}",
+                        incident_id=f"{self.run_id}:{signal_id}:{start_scan_index}",
                         signal_id=signal_id,
                         cause=cause,
                         severity=severity,
@@ -248,6 +251,7 @@ class IncidentEngine:
                 state.active_incident = None
                 state.recovered_streak = 0
 
+        self._prune_state(scan_index)
         return events
 
     def evaluate_signal_statuses(
@@ -455,3 +459,22 @@ class IncidentEngine:
             parts.append(f"severity {incident.severity.value}")
         detail = ", ".join(parts) if parts else "status"
         return f"Incident updated for {incident.signal_id} with {detail}."
+
+    def _prune_state(self, scan_index: int) -> None:
+        retention = self.policy.state_retention_scans
+        if retention <= 0:
+            return
+        to_prune = [
+            signal_id
+            for signal_id, state in self._state_by_signal.items()
+            if state.active_incident is None
+            and state.last_seen_scan_index is not None
+            and scan_index - state.last_seen_scan_index > retention
+        ]
+        for signal_id in to_prune:
+            del self._state_by_signal[signal_id]
+
+
+def required_causes_from_policy(policy: IncidentPolicy) -> Set[str]:
+    """Return component names that must be computed for incidents."""
+    return {cause.value for cause in policy.hard_fault_causes}

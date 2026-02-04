@@ -36,6 +36,7 @@ def export_vectors(out_dir: Path) -> None:
             config_path=str(config_path),
             groups_config_path=str(groups_path),
             out_dir=tmp_dir,
+            run_id="test-run",
         )
         shutil.copyfile(scans_path, out_dir / "scans.jsonl")
         shutil.copyfile(config_path, out_dir / "cfg.yaml")

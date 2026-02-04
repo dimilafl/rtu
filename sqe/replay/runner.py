@@ -6,6 +6,7 @@ import json
 from contextlib import ExitStack
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+import uuid
 
 from sqe.config.loader import (
     build_signal_config,
@@ -28,7 +29,11 @@ from sqe.core.engine import ProcessedSignal, SignalQualityEngine
 from sqe.core.event_filter import EventFilter
 from sqe.core.group_incidents import GroupIncidentEngine, GroupIncidentEvent
 from sqe.core.grouping import GroupResolver
-from sqe.core.incidents import IncidentEngine, IncidentEvent
+from sqe.core.incidents import (
+    IncidentEngine,
+    IncidentEvent,
+    required_causes_from_policy,
+)
 from sqe.core.sample import Sample, parse_sample
 from sqe.integration.publisher import JsonLinesPublisher
 from sqe.replay.schema import validate_scan_record
@@ -42,6 +47,7 @@ def run_replay(
     out_dir: str,
     write_processed: bool = True,
     max_scans: Optional[int] = None,
+    run_id: Optional[str] = None,
 ) -> None:
     """Run deterministic replay of scan inputs."""
     config = load_config(config_path)
@@ -53,6 +59,9 @@ def run_replay(
         "log_quality_changes": False,
         "log_anomalies": False,
     }
+    incident_policy = get_incident_policy(config)
+    required_causes = required_causes_from_policy(incident_policy)
+    run_id = run_id or uuid.uuid4().hex
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
         auto_register=get_engine_auto_register(config),
@@ -71,6 +80,7 @@ def run_replay(
             "load_shed_oscillation_cadence"
         ],
         load_shed_skip_fft=performance_settings["load_shed_skip_fft"],
+        required_incident_causes=required_causes,
     )
 
     if not engine.auto_register:
@@ -81,7 +91,7 @@ def run_replay(
                 build_signal_config(config, signal_id, scan_interval),
             )
 
-    incident_engine = IncidentEngine(get_incident_policy(config))
+    incident_engine = IncidentEngine(incident_policy, run_id=run_id)
     event_filter_policy = get_event_filter_policy(config)
     event_filter = EventFilter(event_filter_policy)
 
@@ -92,7 +102,7 @@ def run_replay(
         grouping_config = get_grouping_config(group_config)
         group_policy = get_group_incident_policy(group_config, grouping_config)
         group_resolver = GroupResolver(grouping_config)
-        group_incident_engine = GroupIncidentEngine(group_policy)
+        group_incident_engine = GroupIncidentEngine(group_policy, run_id=run_id)
 
     service = RealtimeQualityService(
         engine,

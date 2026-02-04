@@ -7,6 +7,7 @@ import logging
 import math
 import statistics
 import time
+import uuid
 from typing import Any, Dict, List, Optional
 import random
 
@@ -22,7 +23,7 @@ from sqe.config.loader import (
     load_config,
 )
 from sqe.core.engine import SignalQualityEngine
-from sqe.core.incidents import IncidentEngine
+from sqe.core.incidents import IncidentEngine, required_causes_from_policy
 from sqe.ops.service import RealtimeQualityService
 
 
@@ -49,6 +50,9 @@ def run_bench(
     if fast:
         config = _apply_fast_mode(config)
 
+    incident_policy = get_incident_policy(config)
+    required_causes = required_causes_from_policy(incident_policy)
+    run_id = uuid.uuid4().hex
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
         auto_register=get_engine_auto_register(config),
@@ -61,6 +65,7 @@ def run_bench(
         log_scan_timing=False,
         log_quality_changes=False,
         log_anomalies=False,
+        required_incident_causes=required_causes,
     )
     signal_ids = [f"SIG_{index:04d}" for index in range(signals)]
     for signal_id in signal_ids:
@@ -69,7 +74,7 @@ def run_bench(
             build_signal_config(config, signal_id, scan_interval),
         )
 
-    incident_engine = IncidentEngine(get_incident_policy(config))
+    incident_engine = IncidentEngine(incident_policy, run_id=run_id)
     service = RealtimeQualityService(engine, incident_engine)
 
     base_values = {signal_id: rng.uniform(-5.0, 5.0) for signal_id in signal_ids}
