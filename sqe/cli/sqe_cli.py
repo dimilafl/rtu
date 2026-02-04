@@ -31,8 +31,11 @@ from sqe.config.loader import (
     build_signal_config,
     configure_logging,
     get_engine_auto_register,
+    get_engine_max_signals_policy,
     get_engine_max_signals,
     get_engine_scan_interval,
+    get_engine_treat_missing_signals_as_none,
+    get_engine_unknown_signal_policy,
     get_logging_settings,
     get_event_filter_policy,
     get_incident_policy,
@@ -184,6 +187,9 @@ def analyze_command(args):
     )
     auto_register = get_engine_auto_register(config)
     max_signals = get_engine_max_signals(config)
+    missing_policy = get_engine_treat_missing_signals_as_none(config)
+    unknown_signal_policy = get_engine_unknown_signal_policy(config)
+    max_signals_policy = get_engine_max_signals_policy(config)
     logging_settings = get_logging_settings(config)
 
     print(f"Loaded {len(rows)} samples")
@@ -196,6 +202,9 @@ def analyze_command(args):
         scan_interval=scan_interval,
         auto_register=auto_register,
         max_signals=max_signals,
+        treat_missing_signals_as_none=missing_policy,
+        unknown_signal_policy=unknown_signal_policy,
+        max_signals_policy=max_signals_policy,
         log_scan_timing=logging_settings["log_scan_timing"],
         log_quality_changes=logging_settings["log_quality_changes"],
         log_anomalies=logging_settings["log_anomalies"],
@@ -266,6 +275,11 @@ def simulate_command(args):
         scan_interval=scan_interval,
         auto_register=get_engine_auto_register(config),
         max_signals=get_engine_max_signals(config),
+        treat_missing_signals_as_none=get_engine_treat_missing_signals_as_none(
+            config
+        ),
+        unknown_signal_policy=get_engine_unknown_signal_policy(config),
+        max_signals_policy=get_engine_max_signals_policy(config),
         log_scan_timing=logging_settings["log_scan_timing"],
         log_quality_changes=logging_settings["log_quality_changes"],
         log_anomalies=logging_settings["log_anomalies"],
@@ -364,12 +378,18 @@ def incidents_command(args):
     )
     auto_register = get_engine_auto_register(config)
     max_signals = get_engine_max_signals(config)
+    missing_policy = get_engine_treat_missing_signals_as_none(config)
+    unknown_signal_policy = get_engine_unknown_signal_policy(config)
+    max_signals_policy = get_engine_max_signals_policy(config)
     logging_settings = get_logging_settings(config)
 
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
         auto_register=auto_register,
         max_signals=max_signals,
+        treat_missing_signals_as_none=missing_policy,
+        unknown_signal_policy=unknown_signal_policy,
+        max_signals_policy=max_signals_policy,
         log_scan_timing=logging_settings["log_scan_timing"],
         log_quality_changes=logging_settings["log_quality_changes"],
         log_anomalies=logging_settings["log_anomalies"],

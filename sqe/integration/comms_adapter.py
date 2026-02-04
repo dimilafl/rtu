@@ -2,25 +2,32 @@
 SCADA-Comms-Front-End-Processor Adapter
 
 Integrates with SCADA communications front-end.
-Injects communication artifacts (jitter, dropouts, delays)
+Ingests transport telemetry (poll success, RTT, jitter, dropout streaks)
 and tracks missing samples for signal quality assessment.
 """
 
 from typing import Any, Dict, Optional, List
-from dataclasses import dataclass
-import random
-import time
+from dataclasses import dataclass, asdict
 
 from sqe.core.engine import SignalQualityEngine
 
 
 @dataclass
 class CommsArtifact:
-    """Communication artifact configuration."""
+    """Deprecated communication artifact configuration."""
     jitter_ms: float = 0.0           # Random timing jitter (milliseconds)
     dropout_probability: float = 0.0  # Probability of sample dropout (0-1)
     late_probability: float = 0.0     # Probability of late arrival (0-1)
     late_delay_ms: float = 0.0        # Delay for late samples (milliseconds)
+
+
+@dataclass(frozen=True)
+class CommsTelemetry:
+    """Raw transport telemetry for a single poll."""
+    poll_success: bool
+    rtt_ms: float
+    jitter_ms: float
+    dropout_streak: int = 0
 
 
 @dataclass(frozen=True)
@@ -30,24 +37,39 @@ class CommsAdapterSettings:
     track_dropouts: bool = True
     track_late_arrivals: bool = True
     quality_monitor_window: int = 100
+    max_rtt_ms: float = 500.0
+    max_jitter_ms: float = 200.0
+    max_dropout_streak: int = 3
+
+
+@dataclass(frozen=True)
+class CommsHealth:
+    """Derived communication health state."""
+    poll_success: bool
+    rtt_ms: float
+    jitter_ms: float
+    dropout_streak: int
+    degraded: bool
 
 
 @dataclass
 class CommsStats:
     """Communication statistics."""
-    total_samples: int = 0
-    dropped_samples: int = 0
+    total_polls: int = 0
+    failed_polls: int = 0
     late_samples: int = 0
     jittered_samples: int = 0
     average_jitter_ms: float = 0.0
+    average_rtt_ms: float = 0.0
+    max_dropout_streak: int = 0
+    current_dropout_streak: int = 0
 
 
 class CommsAdapter:
     """
     Adapter for SCADA communications front-end integration.
 
-    Simulates and tracks communication artifacts that affect
-    signal quality.
+    Tracks communication telemetry that affects signal quality.
     """
 
     def __init__(
@@ -70,71 +92,32 @@ class CommsAdapter:
         # Statistics tracking
         self.stats = CommsStats()
         self.jitter_history: List[float] = []
-
-    def inject_artifacts(
-        self,
-        signal_values: Dict[str, Optional[float]]
-    ) -> Dict[str, Optional[float]]:
-        """
-        Inject communication artifacts into signal data.
-
-        Args:
-            signal_values: Clean signal values
-
-        Returns:
-            Signal values with artifacts applied
-        """
-        artifacted = {}
-
-        for signal_id, value in signal_values.items():
-            self.stats.total_samples += 1
-
-            # Apply dropout
-            if (
-                self.settings.track_dropouts
-                and random.random() < self.artifact_config.dropout_probability
-            ):
-                artifacted[signal_id] = None
-                self.stats.dropped_samples += 1
-                continue
-
-            # Apply jitter (affects timing, tracked but not modified here)
-            if self.settings.track_jitter and self.artifact_config.jitter_ms > 0:
-                jitter = random.gauss(0, self.artifact_config.jitter_ms)
-                self.jitter_history.append(abs(jitter))
-                self.stats.jittered_samples += 1
-
-            # Apply late arrival (for now, just track statistics)
-            if (
-                self.settings.track_late_arrivals
-                and random.random() < self.artifact_config.late_probability
-            ):
-                self.stats.late_samples += 1
-                # In real implementation, would delay sample delivery
-
-            artifacted[signal_id] = value
-
-        # Update average jitter
-        if self.jitter_history:
-            self.stats.average_jitter_ms = sum(self.jitter_history) / len(self.jitter_history)
-
-        return artifacted
+        self.rtt_history: List[float] = []
 
     def process_scan(
         self,
-        signal_values: Dict[str, Optional[float]]
+        signal_values: Dict[str, Optional[float]],
+        telemetry_by_signal: Optional[Dict[str, CommsTelemetry]] = None,
     ) -> Dict[str, Any]:
         """
         Process scan with communication artifacts.
 
         Args:
             signal_values: Raw signal values
+            telemetry_by_signal: Optional transport telemetry keyed by signal_id
 
         Returns:
             Processed results with comms statistics
         """
-        # Inject artifacts
-        artifacted_signals = self.inject_artifacts(signal_values)
+        comms_health_by_signal: Dict[str, CommsHealth] = {}
+        artifacted_signals = dict(signal_values)
+        if telemetry_by_signal:
+            for signal_id, telemetry in telemetry_by_signal.items():
+                self._update_stats(telemetry)
+                health = self._build_health(telemetry)
+                comms_health_by_signal[signal_id] = health
+                if not telemetry.poll_success:
+                    artifacted_signals[signal_id] = None
 
         # Process through engine
         processed = self.engine.update(artifacted_signals)
@@ -145,16 +128,11 @@ class CommsAdapter:
                 sig_id: sig.to_dict()
                 for sig_id, sig in processed.items()
             },
-            "comms_stats": {
-                "total_samples": self.stats.total_samples,
-                "dropped_samples": self.stats.dropped_samples,
-                "late_samples": self.stats.late_samples,
-                "dropout_rate": self.stats.dropped_samples / self.stats.total_samples
-                if self.stats.total_samples > 0 else 0,
-                "late_rate": self.stats.late_samples / self.stats.total_samples
-                if self.stats.total_samples > 0 else 0,
-                "average_jitter_ms": self.stats.average_jitter_ms
-            }
+            "comms_stats": self.get_stats(),
+            "comms_health_by_signal": {
+                signal_id: asdict(health)
+                for signal_id, health in comms_health_by_signal.items()
+            },
         }
 
     def set_artifact_config(self, config: CommsArtifact) -> None:
@@ -185,6 +163,9 @@ class CommsAdapter:
             track_dropouts=bool(comms.get("track_dropouts", True)),
             track_late_arrivals=bool(comms.get("track_late_arrivals", True)),
             quality_monitor_window=int(comms.get("quality_monitor_window", 100)),
+            max_rtt_ms=float(comms.get("max_rtt_ms", 500.0)),
+            max_jitter_ms=float(comms.get("max_jitter_ms", 200.0)),
+            max_dropout_streak=int(comms.get("max_dropout_streak", 3)),
         )
         return cls(
             engine=engine,
@@ -199,22 +180,60 @@ class CommsAdapter:
         Returns:
             Dictionary with comms stats
         """
+        total_polls = self.stats.total_polls
+        failed_polls = self.stats.failed_polls
         return {
-            "total_samples": self.stats.total_samples,
-            "dropped_samples": self.stats.dropped_samples,
+            "total_polls": total_polls,
+            "failed_polls": failed_polls,
             "late_samples": self.stats.late_samples,
             "jittered_samples": self.stats.jittered_samples,
-            "dropout_rate": self.stats.dropped_samples / self.stats.total_samples
-            if self.stats.total_samples > 0 else 0,
-            "late_rate": self.stats.late_samples / self.stats.total_samples
-            if self.stats.total_samples > 0 else 0,
-            "average_jitter_ms": self.stats.average_jitter_ms
+            "poll_failure_rate": failed_polls / total_polls if total_polls > 0 else 0,
+            "late_rate": self.stats.late_samples / total_polls if total_polls > 0 else 0,
+            "average_jitter_ms": self.stats.average_jitter_ms,
+            "average_rtt_ms": self.stats.average_rtt_ms,
+            "max_dropout_streak": self.stats.max_dropout_streak,
+            "current_dropout_streak": self.stats.current_dropout_streak,
         }
 
     def reset_stats(self) -> None:
         """Reset communication statistics."""
         self.stats = CommsStats()
         self.jitter_history = []
+        self.rtt_history = []
+
+    def _update_stats(self, telemetry: CommsTelemetry) -> None:
+        self.stats.total_polls += 1
+        if not telemetry.poll_success:
+            self.stats.failed_polls += 1
+        if self.settings.track_jitter:
+            self.jitter_history.append(float(telemetry.jitter_ms))
+            self.stats.jittered_samples += 1
+        self.rtt_history.append(float(telemetry.rtt_ms))
+        if self.jitter_history:
+            self.stats.average_jitter_ms = sum(self.jitter_history) / len(
+                self.jitter_history
+            )
+        if self.rtt_history:
+            self.stats.average_rtt_ms = sum(self.rtt_history) / len(self.rtt_history)
+        self.stats.current_dropout_streak = int(telemetry.dropout_streak)
+        self.stats.max_dropout_streak = max(
+            self.stats.max_dropout_streak, self.stats.current_dropout_streak
+        )
+
+    def _build_health(self, telemetry: CommsTelemetry) -> CommsHealth:
+        degraded = (
+            not telemetry.poll_success
+            or telemetry.rtt_ms >= self.settings.max_rtt_ms
+            or telemetry.jitter_ms >= self.settings.max_jitter_ms
+            or telemetry.dropout_streak >= self.settings.max_dropout_streak
+        )
+        return CommsHealth(
+            poll_success=telemetry.poll_success,
+            rtt_ms=float(telemetry.rtt_ms),
+            jitter_ms=float(telemetry.jitter_ms),
+            dropout_streak=int(telemetry.dropout_streak),
+            degraded=degraded,
+        )
 
 
 class CommsQualityMonitor:
@@ -255,12 +274,14 @@ class CommsQualityMonitor:
         Returns:
             Quality assessment with trends
         """
-        dropout_rate = comms_stats.get("dropout_rate", 0.0)
+        poll_failure_rate = comms_stats.get("poll_failure_rate", 0.0)
         jitter = comms_stats.get("average_jitter_ms", 0.0)
+        rtt = comms_stats.get("average_rtt_ms", 0.0)
+        dropout_streak = comms_stats.get("max_dropout_streak", 0)
 
         # Update histories
-        self.dropout_history.append(dropout_rate)
-        self.latency_history.append(jitter)
+        self.dropout_history.append(poll_failure_rate)
+        self.latency_history.append(rtt)
 
         # Trim to window size
         if len(self.dropout_history) > self.window_size:
@@ -273,11 +294,15 @@ class CommsQualityMonitor:
         latency_trend = self._calculate_trend(self.latency_history)
 
         # Assess quality
-        quality_score = self._assess_quality(dropout_rate, jitter)
+        quality_score = self._assess_quality(
+            poll_failure_rate, rtt, jitter, dropout_streak
+        )
 
         return {
-            "current_dropout_rate": dropout_rate,
+            "current_poll_failure_rate": poll_failure_rate,
             "current_jitter_ms": jitter,
+            "current_rtt_ms": rtt,
+            "max_dropout_streak": dropout_streak,
             "dropout_trend": dropout_trend,
             "latency_trend": latency_trend,
             "quality_score": quality_score,
@@ -302,15 +327,27 @@ class CommsQualityMonitor:
         else:
             return "stable"
 
-    def _assess_quality(self, dropout_rate: float, jitter: float) -> float:
+    def _assess_quality(
+        self,
+        poll_failure_rate: float,
+        rtt: float,
+        jitter: float,
+        dropout_streak: int,
+    ) -> float:
         """Assess communication quality (0-100)."""
-        # Dropout component (0-50 points)
-        dropout_score = max(0, 50 * (1 - dropout_rate / 0.1))
+        # Poll success component (0-40 points)
+        poll_score = max(0, 40 * (1 - poll_failure_rate / 0.1))
 
-        # Jitter component (0-50 points)
-        jitter_score = max(0, 50 * (1 - jitter / 100))
+        # RTT component (0-30 points)
+        rtt_score = max(0, 30 * (1 - rtt / 500))
 
-        return dropout_score + jitter_score
+        # Jitter component (0-20 points)
+        jitter_score = max(0, 20 * (1 - jitter / 200))
+
+        # Dropout streak penalty (0-10 points)
+        streak_penalty = min(10, dropout_streak * 2)
+
+        return poll_score + rtt_score + jitter_score + (10 - streak_penalty)
 
     def _classify_quality(self, score: float) -> str:
         """Classify quality level."""

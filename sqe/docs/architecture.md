@@ -265,9 +265,18 @@ result = adapter.execute_scan(signal_values)
 
 ```python
 from sqe.integration import CommsAdapter
+from sqe.integration.comms_adapter import CommsTelemetry
 
-adapter = CommsAdapter(engine, artifact_config)
-result = adapter.process_scan(signal_values)
+adapter = CommsAdapter(engine)
+telemetry = {
+    "AI_001": CommsTelemetry(
+        poll_success=True,
+        rtt_ms=120.0,
+        jitter_ms=12.0,
+        dropout_streak=0,
+    )
+}
+result = adapter.process_scan(signal_values, telemetry_by_signal=telemetry)
 ```
 
 ## Configuration

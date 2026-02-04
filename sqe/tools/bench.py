@@ -13,8 +13,11 @@ import random
 from sqe.config.loader import (
     build_signal_config,
     get_engine_auto_register,
+    get_engine_max_signals_policy,
     get_engine_max_signals,
     get_engine_scan_interval,
+    get_engine_treat_missing_signals_as_none,
+    get_engine_unknown_signal_policy,
     get_incident_policy,
     load_config,
 )
@@ -50,6 +53,11 @@ def run_bench(
         scan_interval=scan_interval,
         auto_register=get_engine_auto_register(config),
         max_signals=get_engine_max_signals(config),
+        treat_missing_signals_as_none=get_engine_treat_missing_signals_as_none(
+            config
+        ),
+        unknown_signal_policy=get_engine_unknown_signal_policy(config),
+        max_signals_policy=get_engine_max_signals_policy(config),
         log_scan_timing=False,
         log_quality_changes=False,
         log_anomalies=False,

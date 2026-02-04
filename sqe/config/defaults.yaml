@@ -98,6 +98,9 @@ integration:
     track_dropouts: true
     track_late_arrivals: true
     quality_monitor_window: 100
+    max_rtt_ms: 500.0
+    max_jitter_ms: 200.0
+    max_dropout_streak: 3
 
 # Logging settings
 logging:
@@ -111,6 +114,13 @@ performance:
   max_signals: 1000         # Maximum number of signals
   buffer_preallocation: true
   use_numpy: true           # Use numpy for calculations
+
+engine:
+  scan_interval: 0.1
+  auto_register: true
+  treat_missing_signals_as_none: true
+  unknown_signal_policy: error
+  max_signals_policy: error
 
 # Alert settings
 alerts:
@@ -128,6 +138,11 @@ incidents:
   end_persistence_scans: 10
   critical_sqi_threshold: 25
   component_score_floor: 70
+  hard_fault_causes:
+    - "missing"
+    - "stale"
+    - "step"
+    - "plausibility"
   emit_update_on_cause_change: true
   emit_update_on_severity_change: true
 
