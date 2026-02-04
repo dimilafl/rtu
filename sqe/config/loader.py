@@ -42,11 +42,7 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     merged = deepcopy(base)
     for key, value in override.items():
-        if (
-            key in merged
-            and isinstance(merged[key], dict)
-            and isinstance(value, dict)
-        ):
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
             merged[key] = _deep_merge(merged[key], value)
         else:
             merged[key] = deepcopy(value)
@@ -107,9 +103,7 @@ def get_engine_auto_register(config: Dict[str, Any]) -> bool:
 
 def get_engine_treat_missing_signals_as_none(config: Dict[str, Any]) -> bool:
     """Get missing signal handling policy."""
-    return bool(
-        config.get("engine", {}).get("treat_missing_signals_as_none", True)
-    )
+    return bool(config.get("engine", {}).get("treat_missing_signals_as_none", True))
 
 
 def get_engine_unknown_signal_policy(config: Dict[str, Any]) -> str:
@@ -143,9 +137,7 @@ def get_performance_settings(config: Dict[str, Any]) -> Dict[str, Any]:
         "load_shed_oscillation_cadence": int(
             performance.get("load_shed_oscillation_cadence", 3)
         ),
-        "load_shed_skip_fft": bool(
-            performance.get("load_shed_skip_fft", True)
-        ),
+        "load_shed_skip_fft": bool(performance.get("load_shed_skip_fft", True)),
     }
 
 
@@ -229,16 +221,12 @@ def build_signal_config(
         plausibility_min=plausibility_rule.get("min"),
         plausibility_max=plausibility_rule.get("max"),
         plausibility_max_rate=plausibility_rule.get("max_rate"),
-        plausibility_persistence_scans=plausibility_rule.get(
-            "persistence_scans", 1
-        ),
-        plausibility_recovery_scans=plausibility_rule.get(
-            "recovery_scans", 1
-        ),
+        plausibility_persistence_scans=plausibility_rule.get("persistence_scans", 1),
+        plausibility_recovery_scans=plausibility_rule.get("recovery_scans", 1),
         reference_frequencies=frequency.get("default_references"),
         sample_interval=sample_interval,
         freq_window=frequency.get("window_size", 50),
-        enable_fft=frequency.get("enable_fft", True),
+        enable_fft=frequency.get("enable_fft", False),
         sqi_weights=sqi.get("weights"),
         sqi_noise_threshold=sqi_thresholds.get("noise", 0.1),
         sqi_drift_threshold=sqi_thresholds.get("drift", 1.0),
@@ -278,7 +266,9 @@ def get_incident_policy(config: Dict[str, Any]) -> IncidentPolicy:
     """Build IncidentPolicy from merged config values."""
     incidents = config.get("incidents", {})
 
-    def require_range(name: str, value: Any, min_value: float, max_value: float) -> float:
+    def require_range(
+        name: str, value: Any, min_value: float, max_value: float
+    ) -> float:
         number = float(value)
         if number < min_value or number > max_value:
             raise ValueError(f"{name} must be between {min_value} and {max_value}")
@@ -522,9 +512,7 @@ def get_event_filter_policy(config: Dict[str, Any]) -> EventFilterPolicy:
         raise ValueError("event_filter.suppress_event_types must be a list")
 
     return EventFilterPolicy(
-        suppress_member_events=bool(
-            event_filter.get("suppress_member_events", True)
-        ),
+        suppress_member_events=bool(event_filter.get("suppress_member_events", True)),
         suppress_when_group_event_active=bool(
             event_filter.get("suppress_when_group_event_active", True)
         ),

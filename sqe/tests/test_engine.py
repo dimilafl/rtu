@@ -7,7 +7,7 @@ from sqe.core.engine import (
     SignalQualityEngine,
     SignalProcessor,
     SignalConfig,
-    ProcessedSignal
+    ProcessedSignal,
 )
 from sqe.core.sample import Sample
 
@@ -20,7 +20,8 @@ class TestSignalConfig:
         config = SignalConfig(signal_id="test")
         assert config.signal_id == "test"
         assert config.ewma_alpha == 0.3
-        assert config.reference_frequencies is not None
+        assert config.reference_frequencies == []
+        assert config.enable_fft is False
 
     def test_custom_config(self):
         """Test custom configuration."""
@@ -28,7 +29,7 @@ class TestSignalConfig:
             signal_id="custom",
             ewma_alpha=0.5,
             ma_window=20,
-            reference_frequencies=[0.1, 1.0]
+            reference_frequencies=[0.1, 1.0],
         )
         assert config.ewma_alpha == 0.5
         assert config.ma_window == 20
@@ -51,7 +52,7 @@ class TestSignalProcessor:
         config = SignalConfig(signal_id="test")
         processor = SignalProcessor(config)
 
-        result = processor.update(10.0)
+        result = processor.update(10.0, timestamp=1.0)
 
         assert result is not None
         assert isinstance(result, ProcessedSignal)
@@ -88,7 +89,10 @@ class TestSignalProcessor:
 
         # Process multiple samples
         for i in range(100):
-            result = processor.update(10.0 + np.sin(i * 0.1))
+            result = processor.update(
+                10.0 + np.sin(i * 0.1),
+                timestamp=float(i),
+            )
 
         # Check all outputs are present
         assert result.filtered_ewma is not None
@@ -108,7 +112,7 @@ class TestSignalProcessor:
         )
         processor = SignalProcessor(config)
 
-        result = processor.update(10.0)
+        result = processor.update(10.0, timestamp=1.0)
 
         assert result.alert_level == "critical"
         assert result.drift_alert is True
@@ -121,7 +125,7 @@ class TestSignalProcessor:
 
         # Create drift
         for i in range(20):
-            result = processor.update(10.0 + i * 0.5)
+            result = processor.update(10.0 + i * 0.5, timestamp=float(i))
 
         assert abs(result.drift) > 0
 
@@ -131,11 +135,11 @@ class TestSignalProcessor:
         processor = SignalProcessor(config)
 
         # Normal samples
-        for _ in range(30):
-            processor.update(10.0)
+        for index in range(30):
+            processor.update(10.0, timestamp=float(index))
 
         # Spike
-        result = processor.update(50.0)
+        result = processor.update(50.0, timestamp=30.0)
 
         # Should be detected as spike
         assert result.is_spike or result.spike_frequency > 0
@@ -145,7 +149,7 @@ class TestSignalProcessor:
         config = SignalConfig(signal_id="test")
         processor = SignalProcessor(config)
 
-        processor.update(10.0)
+        processor.update(10.0, timestamp=1.0)
         processor.reset()
 
         assert processor.sample_count == 0
@@ -279,7 +283,7 @@ class TestSignalQualityEngine:
         engine = SignalQualityEngine()
         engine.register_signal("sig1")
 
-        result = engine.update_single("sig1", 10.0)
+        result = engine.update_single("sig1", 10.0, timestamp=1.0)
 
         assert result is not None
         assert result.signal_id == "sig1"
@@ -291,10 +295,7 @@ class TestSignalQualityEngine:
         engine.register_signal("sig1")
         engine.register_signal("sig2")
 
-        results = engine.update({
-            "sig1": 10.0,
-            "sig2": 20.0
-        })
+        results = engine.update({"sig1": 10.0, "sig2": 20.0}, timestamp=1.0)
 
         assert len(results) == 2
         assert "sig1" in results
@@ -349,7 +350,7 @@ class TestSignalQualityEngine:
         engine = SignalQualityEngine()
 
         # Update unregistered signal
-        result = engine.update_single("new_sig", 10.0)
+        result = engine.update_single("new_sig", 10.0, timestamp=1.0)
 
         # Should auto-register
         assert "new_sig" in engine.processors
@@ -360,7 +361,7 @@ class TestSignalQualityEngine:
         engine = SignalQualityEngine(auto_register=False)
 
         with pytest.raises(ValueError):
-            engine.update_single("new_sig", 10.0)
+            engine.update_single("new_sig", 10.0, timestamp=1.0)
 
     def test_max_signal_limit(self):
         """Test that max signal limit is enforced."""
@@ -371,7 +372,7 @@ class TestSignalQualityEngine:
             engine.register_signal("sig2")
 
         with pytest.raises(ValueError):
-            engine.update_single("sig2", 10.0)
+            engine.update_single("sig2", 10.0, timestamp=1.0)
 
     def test_get_signal_stats(self):
         """Test getting signal statistics."""
@@ -380,7 +381,7 @@ class TestSignalQualityEngine:
 
         # Process some samples
         for i in range(10):
-            engine.update_single("sig1", 10.0 + i)
+            engine.update_single("sig1", 10.0 + i, timestamp=float(i))
 
         stats = engine.get_signal_stats("sig1")
 
@@ -394,7 +395,7 @@ class TestSignalQualityEngine:
         engine.register_signal("sig1")
         engine.register_signal("sig2")
 
-        engine.update({"sig1": 10.0, "sig2": 20.0})
+        engine.update({"sig1": 10.0, "sig2": 20.0}, timestamp=1.0)
 
         all_stats = engine.get_all_stats()
 
@@ -407,7 +408,7 @@ class TestSignalQualityEngine:
         engine = SignalQualityEngine()
         engine.register_signal("sig1")
 
-        engine.update_single("sig1", 10.0)
+        engine.update_single("sig1", 10.0, timestamp=1.0)
         engine.reset_signal("sig1")
 
         stats = engine.get_signal_stats("sig1")
@@ -419,7 +420,7 @@ class TestSignalQualityEngine:
         engine.register_signal("sig1")
         engine.register_signal("sig2")
 
-        engine.update({"sig1": 10.0, "sig2": 20.0})
+        engine.update({"sig1": 10.0, "sig2": 20.0}, timestamp=1.0)
         engine.reset_all()
 
         assert engine.scan_count == 0
@@ -448,8 +449,8 @@ class TestSignalQualityEngine:
         engine = SignalQualityEngine()
         engine.register_signal("sig1")
 
-        for _ in range(5):
-            engine.update({"sig1": 10.0})
+        for index in range(5):
+            engine.update({"sig1": 10.0}, timestamp=float(index))
 
         assert engine.scan_count == 5
 
@@ -458,8 +459,8 @@ class TestSignalQualityEngine:
         engine = SignalQualityEngine()
         engine.register_signal("sig1")
 
-        for _ in range(3):
-            engine.update_single("sig1", 10.0)
+        for index in range(3):
+            engine.update_single("sig1", 10.0, timestamp=float(index))
 
         assert engine.scan_count == 3
 
@@ -469,10 +470,10 @@ class TestSignalQualityEngine:
         engine.register_signal("sig1")
 
         # Send some valid and some missing
-        engine.update({"sig1": 10.0})
-        engine.update({"sig1": None})
-        engine.update({"sig1": 10.0})
-        engine.update({"sig1": None})
+        engine.update({"sig1": 10.0}, timestamp=1.0)
+        engine.update({"sig1": None}, timestamp=2.0)
+        engine.update({"sig1": 10.0}, timestamp=3.0)
+        engine.update({"sig1": None}, timestamp=4.0)
 
         stats = engine.get_signal_stats("sig1")
         assert stats["missing_count"] == 2
@@ -484,7 +485,7 @@ class TestSignalQualityEngine:
         engine.register_signal("sig1")
         engine.register_signal("sig2")
 
-        engine.update({"sig1": 10.0})
+        engine.update({"sig1": 10.0}, timestamp=1.0)
 
         stats1 = engine.get_signal_stats("sig1")
         stats2 = engine.get_signal_stats("sig2")
@@ -493,3 +494,93 @@ class TestSignalQualityEngine:
         assert stats1["missing_ratio"] == 0.0
         assert stats2["missing_count"] == 1
         assert stats2["missing_ratio"] == 1.0
+
+    def test_deterministic_output_with_explicit_timestamps(self):
+        """Ensure repeated runs with same timestamps are deterministic."""
+
+        def run_sequence():
+            engine = SignalQualityEngine()
+            engine.register_signal("sig1")
+            outputs = []
+            values = [1.0, 2.0, 1.5, 2.5]
+            for index, value in enumerate(values, start=1):
+                result = engine.update(
+                    {"sig1": value},
+                    timestamp=float(index),
+                )
+                outputs.append(result["sig1"].to_dict())
+            return outputs
+
+        assert run_sequence() == run_sequence()
+
+    def test_injected_clock_used_when_timestamp_missing(self):
+        """Ensure engine clock is used when scan timestamp is omitted."""
+        timestamps = iter([10.0, 20.0])
+        engine = SignalQualityEngine(clock=lambda: next(timestamps))
+        engine.register_signal("sig1")
+
+        first = engine.update({"sig1": 1.0})["sig1"]
+        second = engine.update({"sig1": 2.0})["sig1"]
+
+        assert first.timestamp == 10.0
+        assert second.timestamp == 20.0
+
+    def test_registration_order_is_preserved(self):
+        """Ensure processing order follows registration order."""
+        engine = SignalQualityEngine()
+        for signal_id in ["b", "a", "c"]:
+            engine.register_signal(signal_id)
+
+        results = engine.update(
+            {"a": 1.0, "b": 2.0, "c": 3.0},
+            timestamp=1.0,
+        )
+
+        assert list(results.keys()) == ["b", "a", "c"]
+
+    def test_unknown_id_policy_does_not_reorder_registered(self):
+        """Ensure unknown IDs are handled without reordering registered signals."""
+        engine = SignalQualityEngine()
+        engine.register_signal("b")
+        engine.register_signal("a")
+
+        results = engine.update(
+            {"a": 1.0, "b": 2.0, "c": 3.0},
+            timestamp=1.0,
+        )
+
+        assert list(results.keys()) == ["b", "a", "c"]
+        assert "c" in engine.processors
+
+        engine = SignalQualityEngine(
+            auto_register=False,
+            unknown_signal_policy="ignore",
+        )
+        engine.register_signal("b")
+        engine.register_signal("a")
+
+        results = engine.update(
+            {"a": 1.0, "b": 2.0, "c": 3.0},
+            timestamp=1.0,
+        )
+
+        assert list(results.keys()) == ["b", "a"]
+        assert "c" not in engine.processors
+
+    def test_fft_disabled_by_default(self, monkeypatch):
+        """Ensure FFT is not invoked with default configuration."""
+
+        def _raise_fft(*_args, **_kwargs):
+            raise RuntimeError("FFT should be disabled by default")
+
+        monkeypatch.setattr(np.fft, "rfft", _raise_fft)
+
+        engine = SignalQualityEngine()
+        engine.register_signal("sig1")
+
+        for index in range(60):
+            engine.update({"sig1": 1.0}, timestamp=float(index))
+
+        last = engine.processors["sig1"].osc_detector._last_result
+        assert last["fft_peak_frequency"] is None
+        assert last["fft_peak_magnitude"] == 0.0

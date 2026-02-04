@@ -49,12 +49,10 @@ plausibility:
 # Frequency detection settings
 frequency:
   default_references:       # Default reference frequencies (Hz)
-    - 0.1
-    - 0.5
-    - 1.0
+    []
   window_size: 50           # Correlation window size
   threshold: 0.5            # Detection threshold
-  enable_fft: true          # Enable FFT-based analysis
+  enable_fft: false         # Enable FFT-based analysis
 
 # Signal Quality Index settings
 sqi:

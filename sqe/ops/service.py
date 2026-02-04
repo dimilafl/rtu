@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -48,8 +47,7 @@ class RealtimeQualityService:
         timestamp: Optional[float] = None,
         comms_health_by_signal: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Tuple[ProcessedScan, List[IncidentEvent], List[GroupIncidentEvent]]:
-        if timestamp is None:
-            timestamp = time.time()
+        timestamp = self.engine._resolve_scan_timestamp(timestamp)
 
         processed = self.engine.update(signals, timestamp=timestamp)
 
@@ -118,8 +116,7 @@ class RealtimeQualityService:
         timestamp: Optional[float] = None,
         comms_health_by_signal: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Tuple[ProcessedScan, List[IncidentEvent], List[GroupIncidentEvent]]:
-        if timestamp is None:
-            timestamp = time.time()
+        timestamp = self.engine._resolve_scan_timestamp(timestamp)
 
         processed = self.engine.update_samples(samples, timestamp=timestamp)
 
@@ -155,9 +152,7 @@ class RealtimeQualityService:
                 enriched = dict(status)
                 if comms_health_by_signal and signal_id in comms_health_by_signal:
                     enriched["comms"] = comms_health_by_signal[signal_id]
-                group_id_to_member_status.setdefault(group_id, {})[
-                    signal_id
-                ] = enriched
+                group_id_to_member_status.setdefault(group_id, {})[signal_id] = enriched
                 signal_id_to_group_id[signal_id] = group_id
             group_events = self.group_incident_engine.update_scan(
                 scan_index=self.scan_index,

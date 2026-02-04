@@ -14,17 +14,19 @@ from sqe.core.engine import SignalQualityEngine, SignalConfig
 @dataclass
 class PointCoreSignal:
     """Wrapper for PointCore analog point."""
+
     point_id: str
-    point_type: str      # "AI" for analog input
+    point_type: str  # "AI" for analog input
     value: Optional[float]
     timestamp: float
-    quality: str         # "GOOD", "BAD", "UNCERTAIN"
-    address: str         # Point address in simulator
+    quality: str  # "GOOD", "BAD", "UNCERTAIN"
+    address: str  # Point address in simulator
 
 
 @dataclass(frozen=True)
 class PointCoreAdapterSettings:
     """Settings for PointCore adapter defaults."""
+
     auto_register_points: bool = True
     default_point_type: str = "AI"
 
@@ -32,6 +34,7 @@ class PointCoreAdapterSettings:
 @dataclass(frozen=True)
 class PointCorePointMetadata:
     """Stable metadata for validating point churn."""
+
     point_type: str
     address: str
 
@@ -70,9 +73,7 @@ class PointCoreAdapter:
         integration = config.get("integration", {})
         pointcore = integration.get("pointcore", {})
         settings = PointCoreAdapterSettings(
-            auto_register_points=bool(
-                pointcore.get("auto_register_points", True)
-            ),
+            auto_register_points=bool(pointcore.get("auto_register_points", True)),
             default_point_type=str(pointcore.get("default_point_type", "AI")),
         )
         return cls(engine=engine, settings=settings)
@@ -123,13 +124,9 @@ class PointCoreAdapter:
 
         mismatches = []
         if metadata.point_type != point.point_type:
-            mismatches.append(
-                f"point_type {metadata.point_type} -> {point.point_type}"
-            )
+            mismatches.append(f"point_type {metadata.point_type} -> {point.point_type}")
         if metadata.address != point.address:
-            mismatches.append(
-                f"address {metadata.address} -> {point.address}"
-            )
+            mismatches.append(f"address {metadata.address} -> {point.address}")
         if mismatches:
             mismatch_text = ", ".join(mismatches)
             raise ValueError(
@@ -164,18 +161,27 @@ class PointCoreAdapter:
         value = point.value if point.quality == "GOOD" else None
 
         # Process through engine
-        result = self.engine.update_single(signal_id, value)
+        result = self.engine.update_single(
+            signal_id,
+            value,
+            timestamp=point.timestamp,
+        )
 
         if result:
             return result.to_dict()
         return None
 
-    def process_scan(self, points: List[PointCoreSignal]) -> Dict[str, Dict]:
+    def process_scan(
+        self,
+        points: List[PointCoreSignal],
+        timestamp: Optional[float] = None,
+    ) -> Dict[str, Dict]:
         """
         Process a complete scan of PointCore points.
 
         Args:
             points: List of PointCoreSignal objects
+            timestamp: Optional scan timestamp override
 
         Returns:
             Dictionary mapping point_id to processed results
@@ -199,16 +205,19 @@ class PointCoreAdapter:
             value = point.value if point.quality == "GOOD" else None
             signals[signal_id] = value
 
+        scan_timestamp = timestamp
+        if scan_timestamp is None and points:
+            scan_timestamp = max(point.timestamp for point in points)
+
         # Process through engine
-        results = self.engine.update(signals)
+        results = self.engine.update(signals, timestamp=scan_timestamp)
 
         # Convert to dictionaries
-        return {
-            point_id: result.to_dict()
-            for point_id, result in results.items()
-        }
+        return {point_id: result.to_dict() for point_id, result in results.items()}
 
-    def from_simulator_data(self, simulator_data: Dict[str, Any]) -> List[PointCoreSignal]:
+    def from_simulator_data(
+        self, simulator_data: Dict[str, Any]
+    ) -> List[PointCoreSignal]:
         """
         Convert PointCore simulator data format to PointCoreSignal objects.
 
@@ -229,13 +238,11 @@ class PointCoreAdapter:
         for point_id, data in simulator_data.items():
             signal = PointCoreSignal(
                 point_id=point_id,
-                point_type=data.get(
-                    "point_type", self.settings.default_point_type
-                ),
+                point_type=data.get("point_type", self.settings.default_point_type),
                 value=data.get("value"),
                 timestamp=data.get("timestamp", 0.0),
                 quality=data.get("quality", "GOOD"),
-                address=data.get("address", point_id)
+                address=data.get("address", point_id),
             )
             signals.append(signal)
 

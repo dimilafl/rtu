@@ -240,6 +240,11 @@ Orchestrates all components into unified processing pipeline.
    - Ordered execution
    - No race conditions
 
+5. **Explicit Timestamps**
+   - Scan timestamps must be provided (or an injected clock must be configured)
+   - Sample timestamps default to the scan timestamp when omitted
+   - Core logic avoids implicit wall-clock calls for deterministic outputs
+
 ## Integration Points
 
 ### PointCore-Simulator
@@ -319,8 +324,9 @@ variance:
   spike_k_sigma: 3.0
 
 frequency:
-  default_references: [0.1, 0.5, 1.0]
+  default_references: []
   window_size: 50
+  enable_fft: false
 
 sqi:
   weights:
