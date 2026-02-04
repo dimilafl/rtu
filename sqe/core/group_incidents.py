@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
+import uuid
 
 from sqe.core.incidents import IncidentCause, IncidentEventType, IncidentSeverity
 from sqe.schema import SCHEMA_VERSION
@@ -26,6 +27,7 @@ class GroupIncidentPolicy:
     end_persistence_scans: int
     critical_fraction_threshold: float
     emit_updates: bool
+    state_retention_scans: int = 100000
 
 
 @dataclass
@@ -58,6 +60,7 @@ class _GroupIncidentState:
     degraded_streak: int = 0
     recovered_streak: int = 0
     last_members: Tuple[str, ...] = field(default_factory=tuple)
+    last_update_scan_index: Optional[int] = None
 
 
 CAUSE_ACTIONS = {
@@ -76,9 +79,12 @@ CAUSE_ACTIONS = {
 class GroupIncidentEngine:
     """Scan-driven incident engine for station groups."""
 
-    def __init__(self, policy: GroupIncidentPolicy) -> None:
+    def __init__(
+        self, policy: GroupIncidentPolicy, *, run_id: Optional[str] = None
+    ) -> None:
         self.policy = policy
         self._state_by_group: Dict[str, _GroupIncidentState] = {}
+        self.run_id = run_id or uuid.uuid4().hex
 
     def update_scan(
         self,
@@ -121,6 +127,7 @@ class GroupIncidentEngine:
             )
 
             state = self._state_by_group.setdefault(group_id, _GroupIncidentState())
+            state.last_update_scan_index = scan_index
 
             if state.active_incident is None:
                 if degraded_group:
@@ -137,7 +144,9 @@ class GroupIncidentEngine:
                         scan_index - self.policy.start_persistence_scans + 1
                     )
                     incident = GroupIncident(
-                        group_incident_id=f"{group_id}:{start_scan_index}",
+                        group_incident_id=(
+                            f"{self.run_id}:group:{group_id}:{start_scan_index}"
+                        ),
                         group_id=group_id,
                         start_timestamp=timestamp,
                         last_timestamp=timestamp,
@@ -220,6 +229,7 @@ class GroupIncidentEngine:
                 state.recovered_streak = 0
                 state.last_members = tuple()
 
+        self._prune_state(scan_index)
         return events
 
     def get_active_incidents(self) -> Dict[str, GroupIncident]:
@@ -315,3 +325,17 @@ class GroupIncidentEngine:
             parts.append("members")
         detail = ", ".join(parts) if parts else "status"
         return f"Group incident updated for {incident.group_id} with {detail}."
+
+    def _prune_state(self, scan_index: int) -> None:
+        retention = self.policy.state_retention_scans
+        if retention <= 0:
+            return
+        to_prune = [
+            group_id
+            for group_id, state in self._state_by_group.items()
+            if state.active_incident is None
+            and state.last_update_scan_index is not None
+            and scan_index - state.last_update_scan_index > retention
+        ]
+        for group_id in to_prune:
+            del self._state_by_group[group_id]

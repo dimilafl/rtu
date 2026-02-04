@@ -142,11 +142,9 @@ incidents:
   end_persistence_scans: 10
   critical_sqi_threshold: 25
   component_score_floor: 70
+  state_retention_scans: 100000
   hard_fault_causes:
     - "missing"
-    - "stale"
-    - "step"
-    - "plausibility"
   emit_update_on_cause_change: true
   emit_update_on_severity_change: true
 

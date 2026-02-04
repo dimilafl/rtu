@@ -5,7 +5,7 @@ Integrates all DSP components into a unified signal processing pipeline.
 Designed for deterministic, real-time operation within PLC scan cycles.
 """
 
-from typing import Dict, Optional, List, Deque
+from typing import Dict, Optional, List, Deque, Iterable, Set
 from dataclasses import dataclass, asdict
 from collections import deque
 import logging
@@ -17,9 +17,9 @@ from sqe.core.drift import DriftDetector, DriftEvent
 from sqe.core.variance import VarianceCalculator, SpikeDetector
 from sqe.core.freq_detect import OscillationDetector
 from sqe.core.sqi import SignalQualityIndex, SQIWeights
-from sqe.core.stale import StaleDetector
-from sqe.core.step_change import StepChangeDetector
-from sqe.core.plausibility import PlausibilityChecker
+from sqe.core.stale import StaleDetector, StaleResult
+from sqe.core.step_change import StepChangeDetector, StepChangeResult
+from sqe.core.plausibility import PlausibilityChecker, PlausibilityResult
 from sqe.core.signal_buffer import SignalBuffer
 
 
@@ -86,11 +86,6 @@ class SignalConfig:
             "variance_window": self.variance_window,
             "freq_window": self.freq_window,
             "missing_window": self.missing_window,
-            "stale_window": self.stale_window,
-            "stale_recovery_window": self.stale_recovery_window,
-            "step_baseline_window": self.step_baseline_window,
-            "step_persistence_scans": self.step_persistence_scans,
-            "step_recovery_scans": self.step_recovery_scans,
             "plausibility_persistence_scans": self.plausibility_persistence_scans,
             "plausibility_recovery_scans": self.plausibility_recovery_scans,
         }
@@ -98,16 +93,16 @@ class SignalConfig:
             if value <= 0:
                 raise ValueError(f"{name} must be > 0 (got {value}).")
 
-        if self.stale_window <= 1:
-            raise ValueError(
-                f"stale_window must be > 1 (got {self.stale_window})."
-            )
-
-        if self.step_baseline_window <= 1:
-            raise ValueError(
-                "step_baseline_window must be > 1 "
-                f"(got {self.step_baseline_window})."
-            )
+        optional_window_params = {
+            "stale_window": self.stale_window,
+            "stale_recovery_window": self.stale_recovery_window,
+            "step_baseline_window": self.step_baseline_window,
+            "step_persistence_scans": self.step_persistence_scans,
+            "step_recovery_scans": self.step_recovery_scans,
+        }
+        for name, value in optional_window_params.items():
+            if value < 0:
+                raise ValueError(f"{name} must be >= 0 (got {value}).")
 
         if self.sample_interval <= 0:
             raise ValueError(
@@ -144,6 +139,54 @@ class SignalConfig:
         if self.reference_frequencies is None:
             # Default frequencies: 0.1 Hz, 0.5 Hz, 1 Hz
             self.reference_frequencies = [0.1, 0.5, 1.0]
+
+    def enabled_components(self, required_causes: Iterable[str]) -> Set[str]:
+        """Return SQI component names that should be computed."""
+        required = {str(cause).lower() for cause in required_causes}
+        weight_map = self.sqi_weights or SQIWeights().__dict__
+
+        def weight_enabled(name: str) -> bool:
+            return float(weight_map.get(name, 0.0)) > 0.0
+
+        thresholds = {
+            "stale": self.stale_window > 1 and self.stale_recovery_window > 0,
+            "step": (
+                self.step_baseline_window > 1
+                and self.step_threshold > 0
+                and self.step_persistence_scans > 0
+                and self.step_recovery_scans > 0
+            ),
+            "plausibility": (
+                self.plausibility_min is not None
+                or self.plausibility_max is not None
+                or self.plausibility_max_rate is not None
+            ),
+            "oscillation": self.freq_window > 1
+            and (
+                self.enable_fft
+                or (self.reference_frequencies and len(self.reference_frequencies) > 0)
+            ),
+        }
+
+        enabled: Set[str] = set()
+        for component in (
+            "noise",
+            "drift",
+            "spikes",
+            "oscillation",
+            "missing",
+            "stale",
+            "step",
+            "plausibility",
+        ):
+            threshold_enabled = thresholds.get(component, True)
+            if component in required and not threshold_enabled:
+                raise ValueError(
+                    f"{component} is required but disabled by thresholds."
+                )
+            if component in required or (weight_enabled(component) and threshold_enabled):
+                enabled.add(component)
+        return enabled
 
 
 @dataclass
@@ -208,7 +251,12 @@ class SignalProcessor:
     frequency detection, and quality indexing.
     """
 
-    def __init__(self, config: SignalConfig):
+    def __init__(
+        self,
+        config: SignalConfig,
+        *,
+        required_causes: Optional[Iterable[str]] = None,
+    ):
         """
         Initialize signal processor.
 
@@ -217,6 +265,12 @@ class SignalProcessor:
         """
         self.config = config
         self.sample_count = 0
+        required_causes = required_causes or set()
+        enabled_components = self.config.enabled_components(required_causes)
+        self.compute_stale = "stale" in enabled_components
+        self.compute_step = "step" in enabled_components
+        self.compute_plausibility = "plausibility" in enabled_components
+        self.compute_oscillation = "oscillation" in enabled_components
 
         # Initialize filters
         self.ewma_filter = EWMAFilter(config.ewma_alpha)
@@ -263,27 +317,33 @@ class SignalProcessor:
         self.last_quality_class: Optional[str] = None
 
         # Initialize stale detector
-        self.stale_detector = StaleDetector(
-            window_size=config.stale_window,
-            recovery_window=config.stale_recovery_window,
-        )
+        self.stale_detector = None
+        if self.compute_stale:
+            self.stale_detector = StaleDetector(
+                window_size=config.stale_window,
+                recovery_window=config.stale_recovery_window,
+            )
 
         # Initialize step-change detector
-        self.step_detector = StepChangeDetector(
-            baseline_window=config.step_baseline_window,
-            step_threshold=config.step_threshold,
-            persistence_scans=config.step_persistence_scans,
-            recovery_scans=config.step_recovery_scans,
-        )
+        self.step_detector = None
+        if self.compute_step:
+            self.step_detector = StepChangeDetector(
+                baseline_window=config.step_baseline_window,
+                step_threshold=config.step_threshold,
+                persistence_scans=config.step_persistence_scans,
+                recovery_scans=config.step_recovery_scans,
+            )
 
         # Initialize plausibility checker
-        self.plausibility_checker = PlausibilityChecker(
-            min_value=config.plausibility_min,
-            max_value=config.plausibility_max,
-            max_rate=config.plausibility_max_rate,
-            persistence_scans=config.plausibility_persistence_scans,
-            recovery_scans=config.plausibility_recovery_scans,
-        )
+        self.plausibility_checker = None
+        if self.compute_plausibility:
+            self.plausibility_checker = PlausibilityChecker(
+                min_value=config.plausibility_min,
+                max_value=config.plausibility_max,
+                max_rate=config.plausibility_max_rate,
+                persistence_scans=config.plausibility_persistence_scans,
+                recovery_scans=config.plausibility_recovery_scans,
+            )
 
     def update(
         self,
@@ -347,23 +407,56 @@ class SignalProcessor:
         )
 
         # Frequency detection
-        freq_result = self.osc_detector.update(
-            x,
-            load_shed=load_shed,
-            cadence=oscillation_cadence,
-            skip_fft=skip_fft,
-        )
+        if self.compute_oscillation:
+            freq_result = self.osc_detector.update(
+                x,
+                load_shed=load_shed,
+                cadence=oscillation_cadence,
+                skip_fft=skip_fft,
+            )
+        else:
+            freq_result = {
+                "correlation_components": {},
+                "total_oscillation_energy": 0.0,
+                "dominant_frequency": None,
+                "dominant_magnitude": 0.0,
+                "fft_peak_frequency": None,
+                "fft_peak_magnitude": 0.0,
+            }
 
         # Stale detection
-        stale_result = self.stale_detector.update(x, effective_timestamp)
+        if self.compute_stale and self.stale_detector:
+            stale_result = self.stale_detector.update(x, effective_timestamp)
+        else:
+            stale_result = StaleResult(
+                is_stale=False,
+                reason=None,
+                flatline=False,
+                timestamp_stale=False,
+            )
 
         # Step-change detection
-        step_result = self.step_detector.update(x)
+        if self.compute_step and self.step_detector:
+            step_result = self.step_detector.update(x)
+        else:
+            step_result = StepChangeResult(
+                is_step=False,
+                baseline=None,
+                step_level=None,
+                offset=None,
+            )
 
         # Plausibility checks
-        plausibility_result = self.plausibility_checker.update(
-            x, effective_timestamp
-        )
+        if self.compute_plausibility and self.plausibility_checker:
+            plausibility_result = self.plausibility_checker.update(
+                x, effective_timestamp
+            )
+        else:
+            plausibility_result = PlausibilityResult(
+                is_violation=False,
+                reasons=[],
+                rate_of_change=None,
+            )
 
         # Calculate SQI
         missing_ratio = self.get_effective_missing_ratio()
@@ -442,9 +535,12 @@ class SignalProcessor:
         self.spike_detector.reset()
         self.osc_detector.reset()
         self.sqi_calc.reset()
-        self.stale_detector.reset()
-        self.step_detector.reset()
-        self.plausibility_checker.reset()
+        if self.stale_detector:
+            self.stale_detector.reset()
+        if self.step_detector:
+            self.step_detector.reset()
+        if self.plausibility_checker:
+            self.plausibility_checker.reset()
 
     def get_effective_missing_ratio(self) -> float:
         """Return the mean quality penalty for the missing window."""
@@ -476,6 +572,7 @@ class SignalQualityEngine:
         load_shed_p95_window: int = 50,
         load_shed_oscillation_cadence: int = 3,
         load_shed_skip_fft: bool = True,
+        required_incident_causes: Optional[Iterable[str]] = None,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -521,6 +618,11 @@ class SignalQualityEngine:
             1, load_shed_oscillation_cadence
         )
         self._load_shed_skip_fft = load_shed_skip_fft
+        self.required_incident_causes = (
+            {str(cause).lower() for cause in required_incident_causes}
+            if required_incident_causes
+            else set()
+        )
 
     def register_signal(
         self,
@@ -558,7 +660,10 @@ class SignalQualityEngine:
                 "Signal config signal_id must match registration key"
             )
 
-        self.processors[signal_id] = SignalProcessor(config)
+        self.processors[signal_id] = SignalProcessor(
+            config,
+            required_causes=self.required_incident_causes,
+        )
         self._registration_order.append(signal_id)
         return True
 

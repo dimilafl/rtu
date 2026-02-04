@@ -167,6 +167,7 @@ def test_suppression_stats_written_to_scans_jsonl(tmp_path):
         config_path=str(config_path),
         groups_config_path=str(groups_path),
         out_dir=str(out_dir),
+        run_id="test-run",
     )
 
     scans = [

@@ -67,6 +67,7 @@ def test_replay_vectors_regression_fences(tmp_path: Path) -> None:
         config_path=str(config_path),
         groups_config_path=str(groups_path),
         out_dir=str(out_dir),
+        run_id="test-run",
     )
 
     assert (out_dir / "incidents.jsonl").read_text() == expected_incidents

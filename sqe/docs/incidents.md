@@ -22,7 +22,7 @@ Each event includes:
 - `message`: short actionable message
 - `recommended_action`: operator guidance by cause
 - `incident`: incident state
-  - `incident_id`: deterministic id `signal_id:start_scan_index`
+  - `incident_id`: deterministic id `run_id:signal_id:start_scan_index`
   - `signal_id`
   - `cause`: missing, noise, drift, spikes, oscillation, unknown
   - `severity`: warning, critical
@@ -42,6 +42,7 @@ Policy controls persistence, thresholds, and updates:
 - `component_score_floor`: component scores below this are degraded causes.
 - `hard_fault_causes`: causes that can trigger incidents even when their SQI
   weight is zero (for example, stale or plausibility violations).
+- `state_retention_scans`: prune inactive incident state after this many scans.
 - `emit_update_on_cause_change`: emit updated event on cause change.
 - `emit_update_on_severity_change`: emit updated event on severity change.
 
@@ -54,8 +55,8 @@ channels that must surface even when their SQI weight is set to zero.
 
 ## Determinism guarantees
 The incident engine is scan driven with explicit timestamps. Given identical
-scan inputs, timestamps, and missing ratios, it produces identical events and
-incident ids.
+scan inputs, timestamps, missing ratios, and run id, it produces identical
+events and incident ids.
 
 ## OASyS integration mapping concept
 Quality incidents are designed to map to derived points and events in AVEVA

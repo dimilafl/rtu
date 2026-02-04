@@ -21,6 +21,7 @@ def test_replay_station_dropout_suppresses_member_events(tmp_path):
         config_path=str(config_path),
         groups_config_path=str(groups_path),
         out_dir=str(out_dir),
+        run_id="test-run",
     )
 
     assert (out_dir / "incidents.jsonl").read_text() == expected_incidents

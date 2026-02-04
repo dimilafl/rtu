@@ -15,6 +15,7 @@ import argparse
 import sys
 import csv
 import json
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import median
@@ -23,7 +24,11 @@ from collections import Counter
 
 from sqe.core.engine import SignalQualityEngine
 from sqe.core.event_filter import EventFilter
-from sqe.core.incidents import IncidentEngine, IncidentEventType
+from sqe.core.incidents import (
+    IncidentEngine,
+    IncidentEventType,
+    required_causes_from_policy,
+)
 from sqe.core.group_incidents import GroupIncidentEngine
 from sqe.core.grouping import GroupResolver
 from sqe.config.loader import (
@@ -200,6 +205,9 @@ def analyze_command(args):
     print()
 
     # Initialize engine
+    incident_policy = get_incident_policy(config)
+    required_causes = required_causes_from_policy(incident_policy)
+    run_id = uuid.uuid4().hex
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
         auto_register=auto_register,
@@ -216,6 +224,7 @@ def analyze_command(args):
             "load_shed_oscillation_cadence"
         ],
         load_shed_skip_fft=performance_settings["load_shed_skip_fft"],
+        required_incident_causes=required_causes,
     )
     for signal_id in signal_ids:
         engine.register_signal(
@@ -399,6 +408,9 @@ def incidents_command(args):
     logging_settings = get_logging_settings(config)
     performance_settings = get_performance_settings(config)
 
+    incident_policy = get_incident_policy(config)
+    required_causes = required_causes_from_policy(incident_policy)
+    run_id = uuid.uuid4().hex
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
         auto_register=auto_register,
@@ -415,6 +427,7 @@ def incidents_command(args):
             "load_shed_oscillation_cadence"
         ],
         load_shed_skip_fft=performance_settings["load_shed_skip_fft"],
+        required_incident_causes=required_causes,
     )
     for signal_id in signal_ids:
         engine.register_signal(
@@ -425,7 +438,7 @@ def incidents_command(args):
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    incident_engine = IncidentEngine(get_incident_policy(config))
+    incident_engine = IncidentEngine(incident_policy, run_id=run_id)
     event_filter_policy = get_event_filter_policy(config)
     event_filter = EventFilter(event_filter_policy)
     group_events_path: Optional[Path] = None
@@ -441,7 +454,7 @@ def incidents_command(args):
             print(f"Error loading groups config: {exc}")
             return 1
         group_resolver = GroupResolver(grouping_config)
-        group_incident_engine = GroupIncidentEngine(group_policy)
+        group_incident_engine = GroupIncidentEngine(group_policy, run_id=run_id)
         group_events_path = out_path.parent / "group_incidents.jsonl"
         group_events_path.write_text("", encoding="utf-8")
 

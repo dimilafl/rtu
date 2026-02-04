@@ -52,7 +52,10 @@ def test_uncertain_quality_affects_missing_ratio():
 
 
 def test_source_timestamp_drives_stale_reason():
-    processor = SignalProcessor(SignalConfig(signal_id="sig", stale_window=2))
+    processor = SignalProcessor(
+        SignalConfig(signal_id="sig", stale_window=2),
+        required_causes={"stale"},
+    )
 
     processor.update(10.0, timestamp=1.0, source_timestamp=1.0)
     processed = processor.update(12.0, timestamp=2.0, source_timestamp=1.0)

@@ -23,6 +23,7 @@ def test_eval_metrics_against_labels(tmp_path):
         config_path=str(config_path),
         groups_config_path=None,
         out_dir=str(out_dir),
+        run_id="test-run",
     )
 
     labels = load_labels(str(labels_path))
