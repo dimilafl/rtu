@@ -72,6 +72,7 @@ class DriftDetector:
         self.drift_history = SignalBuffer(sustained_window)
         self.monotonic_count = 0
         self.last_drift_sign = 0
+        self._sustained_samples = np.empty(sustained_window, dtype=float)
 
     def update(self, x: float) -> DriftEvent:
         """
@@ -186,14 +187,16 @@ class DriftDetector:
         Returns:
             True if sustained drift detected
         """
-        samples = self.drift_history.get_samples()
-
-        if len(samples) < self.sustained_window:
+        count = self.drift_history.fill_samples(
+            self._sustained_samples, n=self.sustained_window
+        )
+        if count < self.sustained_window:
             return False
 
         # Check if most recent samples exceed small threshold
-        sustained_count = np.sum(samples > self.small_threshold)
-        ratio = sustained_count / len(samples)
+        samples_view = self._sustained_samples[:count]
+        sustained_count = np.sum(samples_view > self.small_threshold)
+        ratio = sustained_count / count
 
         return ratio >= 0.7  # 70% of window must show drift
 
@@ -221,6 +224,7 @@ class DriftAnalyzer:
         """
         self.drift_buffer = SignalBuffer(window_size)
         self.event_history: List[DriftEvent] = []
+        self._stat_samples = np.empty(window_size, dtype=float)
 
     def add_event(self, event: DriftEvent) -> None:
         """
@@ -243,9 +247,8 @@ class DriftAnalyzer:
         Returns:
             Dictionary of drift metrics
         """
-        samples = self.drift_buffer.get_samples()
-
-        if len(samples) == 0:
+        count = self.drift_buffer.fill_samples(self._stat_samples)
+        if count == 0:
             return {
                 "mean_drift": 0.0,
                 "max_drift": 0.0,
@@ -253,12 +256,13 @@ class DriftAnalyzer:
                 "drift_rate_stability": 1.0
             }
 
-        mean_drift = np.mean(samples)
-        max_drift = np.max(samples)
-        variance = np.var(samples)
+        samples_view = self._stat_samples[:count]
+        mean_drift = np.mean(samples_view)
+        max_drift = np.max(samples_view)
+        variance = np.var(samples_view)
 
         # Stability: inverse of coefficient of variation
-        cv = np.std(samples) / mean_drift if mean_drift > 0 else 0
+        cv = np.std(samples_view) / mean_drift if mean_drift > 0 else 0
         stability = 1.0 / (1.0 + cv)
 
         return {

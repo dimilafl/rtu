@@ -16,6 +16,7 @@ from sqe.config.loader import (
     get_engine_max_signals,
     get_engine_scan_interval,
     get_incident_policy,
+    get_performance_settings,
     load_config,
 )
 from sqe.core.engine import SignalQualityEngine
@@ -46,6 +47,7 @@ def run_bench(
     if fast:
         config = _apply_fast_mode(config)
 
+    performance_settings = get_performance_settings(config)
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
         auto_register=get_engine_auto_register(config),
@@ -53,6 +55,12 @@ def run_bench(
         log_scan_timing=False,
         log_quality_changes=False,
         log_anomalies=False,
+        compute_budget_ms=performance_settings["compute_budget_ms"],
+        load_shed_p95_window=performance_settings["load_shed_p95_window"],
+        load_shed_oscillation_cadence=performance_settings[
+            "load_shed_oscillation_cadence"
+        ],
+        load_shed_skip_fft=performance_settings["load_shed_skip_fft"],
     )
     signal_ids = [f"SIG_{index:04d}" for index in range(signals)]
     for signal_id in signal_ids:

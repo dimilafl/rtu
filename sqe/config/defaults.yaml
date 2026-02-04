@@ -54,7 +54,7 @@ frequency:
     - 1.0
   window_size: 50           # Correlation window size
   threshold: 0.5            # Detection threshold
-  use_fft: true             # Enable FFT-based analysis
+  enable_fft: true          # Enable FFT-based analysis
 
 # Signal Quality Index settings
 sqi:
@@ -111,6 +111,10 @@ performance:
   max_signals: 1000         # Maximum number of signals
   buffer_preallocation: true
   use_numpy: true           # Use numpy for calculations
+  compute_budget_ms: null   # Optional scan budget in milliseconds
+  load_shed_p95_window: 50  # Window size for p95 scan duration
+  load_shed_oscillation_cadence: 3  # Skip heavy oscillation work cadence
+  load_shed_skip_fft: true  # Skip FFT when over budget
 
 # Alert settings
 alerts:

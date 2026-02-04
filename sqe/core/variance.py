@@ -33,6 +33,9 @@ class VarianceCalculator:
 
         self.window_size = window_size
         self.buffer = SignalBuffer(window_size)
+        self._sum = 0.0
+        self._sum_sq = 0.0
+        self._sample_count = 0
 
     def update(self, x: float) -> dict:
         """
@@ -44,22 +47,32 @@ class VarianceCalculator:
         Returns:
             Dictionary with mean, variance, std_dev, and noise_level
         """
-        self.buffer.push(x)
-        samples = self.buffer.get_samples()
+        evicted_value, _ = self.buffer.push(x)
+        self._sum += x
+        self._sum_sq += x * x
+        if evicted_value is not None:
+            self._sum -= evicted_value
+            self._sum_sq -= evicted_value * evicted_value
+        elif self._sample_count < self.window_size:
+            self._sample_count += 1
 
-        if len(samples) < 2:
+        if self._sample_count < 2:
             # Need at least 2 samples for variance
             return {
                 "mean": x,
                 "variance": 0.0,
                 "std_dev": 0.0,
                 "noise_level": 0.0,
-                "sample_count": len(samples)
+                "sample_count": self._sample_count,
             }
 
         # Calculate statistics using numpy
-        mean = np.mean(samples)
-        variance = np.var(samples, ddof=1)  # Sample variance
+        mean = self._sum / self._sample_count
+        variance = (
+            (self._sum_sq - self._sample_count * mean * mean)
+            / (self._sample_count - 1)
+        )
+        variance = max(variance, 0.0)
         std_dev = np.sqrt(variance)
 
         # Noise level as coefficient of variation
@@ -70,7 +83,7 @@ class VarianceCalculator:
             "variance": float(variance),
             "std_dev": float(std_dev),
             "noise_level": float(cv),
-            "sample_count": len(samples)
+            "sample_count": self._sample_count,
         }
 
     def get_stats(self) -> dict:
@@ -80,20 +93,22 @@ class VarianceCalculator:
         Returns:
             Dictionary with mean, variance, std_dev, and noise_level
         """
-        samples = self.buffer.get_samples()
-
-        if len(samples) < 2:
-            mean = float(np.mean(samples)) if len(samples) > 0 else 0.0
+        if self._sample_count < 2:
+            mean = self._sum / self._sample_count if self._sample_count else 0.0
             return {
                 "mean": mean,
                 "variance": 0.0,
                 "std_dev": 0.0,
                 "noise_level": 0.0,
-                "sample_count": len(samples)
+                "sample_count": self._sample_count,
             }
 
-        mean = np.mean(samples)
-        variance = np.var(samples, ddof=1)  # Sample variance
+        mean = self._sum / self._sample_count
+        variance = (
+            (self._sum_sq - self._sample_count * mean * mean)
+            / (self._sample_count - 1)
+        )
+        variance = max(variance, 0.0)
         std_dev = np.sqrt(variance)
         cv = std_dev / abs(mean) if abs(mean) > 1e-9 else std_dev
 
@@ -102,7 +117,7 @@ class VarianceCalculator:
             "variance": float(variance),
             "std_dev": float(std_dev),
             "noise_level": float(cv),
-            "sample_count": len(samples)
+            "sample_count": self._sample_count,
         }
 
     def get_spike_threshold(
@@ -159,6 +174,9 @@ class VarianceCalculator:
     def reset(self) -> None:
         """Reset calculator state."""
         self.buffer.clear()
+        self._sum = 0.0
+        self._sum_sq = 0.0
+        self._sample_count = 0
 
 
 class WelfordVariance:

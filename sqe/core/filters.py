@@ -6,7 +6,6 @@ for real-time signal conditioning in discrete time.
 """
 
 from typing import Optional
-import numpy as np
 from sqe.core.signal_buffer import SignalBuffer
 
 
@@ -118,6 +117,8 @@ class MovingAverageFilter:
 
         self.window_size = window_size
         self.buffer = SignalBuffer(window_size)
+        self._sum = 0.0
+        self._count = 0
 
     def update(self, x: float) -> float:
         """
@@ -129,17 +130,23 @@ class MovingAverageFilter:
         Returns:
             Moving average output
         """
-        self.buffer.push(x)
-        samples = self.buffer.get_samples()
+        evicted_value, _ = self.buffer.push(x)
+        if evicted_value is not None:
+            self._sum -= evicted_value
+        elif self._count < self.window_size:
+            self._count += 1
 
-        if len(samples) == 0:
+        self._sum += x
+        if self._count == 0:
             return x
 
-        return np.mean(samples)
+        return self._sum / self._count
 
     def reset(self) -> None:
         """Reset filter state."""
         self.buffer.clear()
+        self._sum = 0.0
+        self._count = 0
 
 
 class FilterBank:

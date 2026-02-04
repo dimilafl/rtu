@@ -293,6 +293,9 @@ class SignalProcessor:
         quality: SampleQuality = SampleQuality.GOOD,
         source_timestamp: Optional[float] = None,
         baseline_stats_cache: Optional[Dict[str, Dict[str, float]]] = None,
+        load_shed: bool = False,
+        oscillation_cadence: int = 1,
+        skip_fft: bool = False,
     ) -> Optional[ProcessedSignal]:
         """
         Process new sample through complete pipeline.
@@ -344,7 +347,12 @@ class SignalProcessor:
         )
 
         # Frequency detection
-        freq_result = self.osc_detector.update(x)
+        freq_result = self.osc_detector.update(
+            x,
+            load_shed=load_shed,
+            cadence=oscillation_cadence,
+            skip_fft=skip_fft,
+        )
 
         # Stale detection
         stale_result = self.stale_detector.update(x, effective_timestamp)
@@ -462,6 +470,10 @@ class SignalQualityEngine:
         log_scan_timing: bool = False,
         log_quality_changes: bool = False,
         log_anomalies: bool = False,
+        compute_budget_ms: Optional[float] = None,
+        load_shed_p95_window: int = 50,
+        load_shed_oscillation_cadence: int = 3,
+        load_shed_skip_fft: bool = True,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -472,6 +484,10 @@ class SignalQualityEngine:
             auto_register: Automatically register unknown signals on update
             max_signals: Maximum number of registered signals (None for unlimited)
             treat_missing_signals_as_none: Treat missing registered signals as None
+            compute_budget_ms: Optional scan compute budget (milliseconds)
+            load_shed_p95_window: Window for p95 scan duration
+            load_shed_oscillation_cadence: Cadence to skip heavy oscillation work
+            load_shed_skip_fft: Skip FFT when load shedding is active
         """
         self.scan_interval = scan_interval
         self.auto_register = auto_register
@@ -486,6 +502,16 @@ class SignalQualityEngine:
         self.log_quality_changes = log_quality_changes
         self.log_anomalies = log_anomalies
         self.logger = logger or logging.getLogger(__name__)
+        self.compute_budget_s = (
+            compute_budget_ms / 1000.0 if compute_budget_ms else None
+        )
+        self._scan_durations = deque(
+            maxlen=max(1, int(load_shed_p95_window))
+        )
+        self._scan_duration_p95: Optional[float] = None
+        self._load_shed_active = False
+        self._load_shed_oscillation_cadence = max(1, load_shed_oscillation_cadence)
+        self._load_shed_skip_fft = load_shed_skip_fft
 
     def register_signal(
         self,
@@ -543,6 +569,7 @@ class SignalQualityEngine:
         """
         self.scan_count += 1
         current_time = time.time()
+        scan_start = time.perf_counter()
 
         # Track scan timing
         if self.last_scan_time is not None:
@@ -576,6 +603,9 @@ class SignalQualityEngine:
                 value,
                 timestamp=timestamp,
                 baseline_stats_cache=baseline_stats_cache,
+                load_shed=self._load_shed_active,
+                oscillation_cadence=self._load_shed_oscillation_cadence,
+                skip_fft=self._load_shed_skip_fft,
             )
             if processed is not None:
                 if (
@@ -603,6 +633,8 @@ class SignalQualityEngine:
                     )
                 results[signal_id] = processed
 
+        scan_duration = time.perf_counter() - scan_start
+        self._update_load_shedding(scan_duration)
         return results
 
     def update_samples(
@@ -613,6 +645,7 @@ class SignalQualityEngine:
         """Process one scan cycle for all signals with sample metadata."""
         self.scan_count += 1
         current_time = time.time()
+        scan_start = time.perf_counter()
 
         if self.last_scan_time is not None:
             actual_interval = current_time - self.last_scan_time
@@ -649,6 +682,9 @@ class SignalQualityEngine:
                 quality=sample.quality,
                 source_timestamp=sample.source_timestamp,
                 baseline_stats_cache=baseline_stats_cache,
+                load_shed=self._load_shed_active,
+                oscillation_cadence=self._load_shed_oscillation_cadence,
+                skip_fft=self._load_shed_skip_fft,
             )
             if processed is not None:
                 if (
@@ -676,7 +712,22 @@ class SignalQualityEngine:
                     )
                 results[signal_id] = processed
 
+        scan_duration = time.perf_counter() - scan_start
+        self._update_load_shedding(scan_duration)
         return results
+
+    def _update_load_shedding(self, scan_duration: float) -> None:
+        """Update scan duration stats and load shedding state."""
+        self._scan_durations.append(scan_duration)
+        if not self.compute_budget_s or len(self._scan_durations) < 2:
+            self._load_shed_active = False
+            self._scan_duration_p95 = None
+            return
+
+        sorted_times = sorted(self._scan_durations)
+        p95_index = int(0.95 * (len(sorted_times) - 1))
+        self._scan_duration_p95 = sorted_times[p95_index]
+        self._load_shed_active = self._scan_duration_p95 > self.compute_budget_s
 
     def update_single(
         self,

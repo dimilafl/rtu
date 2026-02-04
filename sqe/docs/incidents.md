@@ -55,5 +55,6 @@ OASyS Enterprise:
 - Derived points: SQI score, dominant cause code, severity code.
 - Event stream: incident started and incident resolved events.
 
-The provided publisher stub documents where to add system specific mapping and
-transport logic.
+The OASyS publisher now emits derived-point and event payloads through a
+transport interface (for example, the JSONL transport included in the
+integration module).

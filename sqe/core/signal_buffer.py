@@ -6,7 +6,7 @@ for sliding-window operations.
 """
 
 from collections import deque
-from typing import Optional
+from typing import Optional, Tuple
 import numpy as np
 
 
@@ -33,16 +33,18 @@ class SignalBuffer:
         self.missing_flags = deque(maxlen=capacity)
         self.missing_count = 0  # Track missing samples for SQI
 
-    def push(self, value: Optional[float]) -> None:
+    def push(self, value: Optional[float]) -> Tuple[Optional[float], bool]:
         """
         Add a new sample to the buffer.
 
         Args:
             value: Sample value, or None if missing
         """
+        evicted_value = None
+        evicted_missing = False
         if len(self.buffer) == self.capacity:
             evicted_missing = self.missing_flags.popleft()
-            self.buffer.popleft()
+            evicted_value = self.buffer.popleft()
             if evicted_missing:
                 self.missing_count -= 1
 
@@ -50,10 +52,50 @@ class SignalBuffer:
             self.buffer.append(None)
             self.missing_flags.append(True)
             self.missing_count += 1
-            return
+            return evicted_value, evicted_missing
 
         self.buffer.append(value)
         self.missing_flags.append(False)
+        return evicted_value, evicted_missing
+
+    def fill_samples(
+        self,
+        out: np.ndarray,
+        n: Optional[int] = None,
+        *,
+        include_missing: bool = False,
+    ) -> int:
+        """
+        Fill a preallocated array with recent samples.
+
+        Args:
+            out: Preallocated numpy array to fill.
+            n: Number of samples to retrieve (None = all).
+            include_missing: Whether to include missing samples (None values).
+
+        Returns:
+            Number of samples written to out.
+        """
+        if n is not None and n <= 0:
+            return 0
+
+        total = len(self.buffer)
+        start_index = 0
+        if n is not None and n < total:
+            start_index = total - n
+
+        write_index = 0
+        for index, sample in enumerate(self.buffer):
+            if index < start_index:
+                continue
+            if sample is None and not include_missing:
+                continue
+            if write_index >= len(out):
+                break
+            out[write_index] = sample
+            write_index += 1
+
+        return write_index
 
     def get_samples(self, n: Optional[int] = None) -> np.ndarray:
         """
@@ -65,15 +107,16 @@ class SignalBuffer:
         Returns:
             Numpy array of samples
         """
-        if n is None:
-            return np.array([sample for sample in self.buffer if sample is not None])
-
-        if n <= 0:
+        if n is not None and n <= 0:
             return np.array([])
 
-        # Get last n samples
-        samples = list(self.buffer)[-n:]
-        return np.array([sample for sample in samples if sample is not None])
+        buffer_size = len(self.buffer) if n is None else min(len(self.buffer), n)
+        if buffer_size == 0:
+            return np.array([])
+
+        out = np.empty(buffer_size, dtype=float)
+        count = self.fill_samples(out, n=n)
+        return out[:count]
 
     def get_latest(self) -> Optional[float]:
         """

@@ -33,6 +33,7 @@ from sqe.config.loader import (
     get_engine_auto_register,
     get_engine_max_signals,
     get_engine_scan_interval,
+    get_performance_settings,
     get_logging_settings,
     get_event_filter_policy,
     get_incident_policy,
@@ -185,6 +186,7 @@ def analyze_command(args):
     auto_register = get_engine_auto_register(config)
     max_signals = get_engine_max_signals(config)
     logging_settings = get_logging_settings(config)
+    performance_settings = get_performance_settings(config)
 
     print(f"Loaded {len(rows)} samples")
     unique_signals = set(signal_ids)
@@ -199,6 +201,12 @@ def analyze_command(args):
         log_scan_timing=logging_settings["log_scan_timing"],
         log_quality_changes=logging_settings["log_quality_changes"],
         log_anomalies=logging_settings["log_anomalies"],
+        compute_budget_ms=performance_settings["compute_budget_ms"],
+        load_shed_p95_window=performance_settings["load_shed_p95_window"],
+        load_shed_oscillation_cadence=performance_settings[
+            "load_shed_oscillation_cadence"
+        ],
+        load_shed_skip_fft=performance_settings["load_shed_skip_fft"],
     )
     for signal_id in signal_ids:
         engine.register_signal(
@@ -262,6 +270,7 @@ def simulate_command(args):
     configure_logging(config)
     scan_interval = get_engine_scan_interval(config)
     logging_settings = get_logging_settings(config)
+    performance_settings = get_performance_settings(config)
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
         auto_register=get_engine_auto_register(config),
@@ -269,6 +278,12 @@ def simulate_command(args):
         log_scan_timing=logging_settings["log_scan_timing"],
         log_quality_changes=logging_settings["log_quality_changes"],
         log_anomalies=logging_settings["log_anomalies"],
+        compute_budget_ms=performance_settings["compute_budget_ms"],
+        load_shed_p95_window=performance_settings["load_shed_p95_window"],
+        load_shed_oscillation_cadence=performance_settings[
+            "load_shed_oscillation_cadence"
+        ],
+        load_shed_skip_fft=performance_settings["load_shed_skip_fft"],
     )
     engine.register_signal(
         "SIM_SIGNAL",
@@ -365,6 +380,7 @@ def incidents_command(args):
     auto_register = get_engine_auto_register(config)
     max_signals = get_engine_max_signals(config)
     logging_settings = get_logging_settings(config)
+    performance_settings = get_performance_settings(config)
 
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
@@ -373,6 +389,12 @@ def incidents_command(args):
         log_scan_timing=logging_settings["log_scan_timing"],
         log_quality_changes=logging_settings["log_quality_changes"],
         log_anomalies=logging_settings["log_anomalies"],
+        compute_budget_ms=performance_settings["compute_budget_ms"],
+        load_shed_p95_window=performance_settings["load_shed_p95_window"],
+        load_shed_oscillation_cadence=performance_settings[
+            "load_shed_oscillation_cadence"
+        ],
+        load_shed_skip_fft=performance_settings["load_shed_skip_fft"],
     )
     for signal_id in signal_ids:
         engine.register_signal(

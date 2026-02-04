@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqe.core.incidents import IncidentCause, IncidentEventType, IncidentSeverity
+from sqe.schema import SCHEMA_VERSION
 
 
 class GroupIncidentCause(str, Enum):
@@ -48,6 +49,7 @@ class GroupIncidentEvent:
     incident: GroupIncident
     message: str
     recommended_action: str
+    schema_version: str = SCHEMA_VERSION
 
 
 @dataclass

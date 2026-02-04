@@ -9,7 +9,7 @@ Implements:
 For multiple reference frequencies.
 """
 
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 import numpy as np
 from dataclasses import dataclass
 from sqe.core.signal_buffer import SignalBuffer
@@ -57,6 +57,7 @@ class FrequencyDetector:
         self.sample_count = 0
         self._last_sample_count: Optional[int] = None
         self._last_components: Optional[List[FrequencyComponent]] = None
+        self._samples = np.empty(window_size, dtype=float)
 
         # Pre-compute reference waveforms for efficiency
         self._precompute_references()
@@ -70,7 +71,9 @@ class FrequencyDetector:
         self._cos_refs = np.cos(omega * n)
         self._freq_index = {freq: index for index, freq in enumerate(self.ref_frequencies)}
 
-    def update(self, x: float) -> Dict[float, FrequencyComponent]:
+    def update(
+        self, x: float, *, compute: bool = True
+    ) -> Dict[float, FrequencyComponent]:
         """
         Process new sample and detect frequency components.
 
@@ -87,8 +90,14 @@ class FrequencyDetector:
         if not self.buffer.is_full():
             return {}
 
-        samples = self.buffer.get_samples()
-        components = self._get_components(samples)
+        if not compute:
+            return {}
+
+        count = self.buffer.fill_samples(self._samples)
+        if count < self.window_size:
+            return {}
+
+        components = self._get_components(self._samples[:count])
         detected: Dict[float, FrequencyComponent] = {}
 
         for freq, component in zip(self.ref_frequencies, components):
@@ -192,8 +201,10 @@ class FrequencyDetector:
         if not self.buffer.is_full():
             return None
 
-        samples = self.buffer.get_samples()
-        components = self._get_components(samples)
+        count = self.buffer.fill_samples(self._samples)
+        if count < self.window_size:
+            return None
+        components = self._get_components(self._samples[:count])
 
         # Filter by threshold
         detected = [c for c in components if c.magnitude > self.threshold]
@@ -214,8 +225,10 @@ class FrequencyDetector:
         if not self.buffer.is_full():
             return 0.0
 
-        samples = self.buffer.get_samples()
-        components = self._get_components(samples)
+        count = self.buffer.fill_samples(self._samples)
+        if count < self.window_size:
+            return 0.0
+        components = self._get_components(self._samples[:count])
         return sum(
             component.energy
             for component in components
@@ -250,8 +263,16 @@ class FFTFrequencyAnalyzer:
         self.buffer = SignalBuffer(window_size)
         self._window = np.hanning(window_size)
         self._frequencies = np.fft.rfftfreq(window_size, self.dt)
+        self._samples = np.empty(window_size, dtype=float)
+        self._windowed = np.empty(window_size, dtype=float)
+        self._last_result: Dict[str, Any] = {
+            "frequencies": [],
+            "magnitudes": [],
+            "peak_frequency": None,
+            "peak_magnitude": 0.0,
+        }
 
-    def update(self, x: float) -> Dict:
+    def update(self, x: float, *, compute: bool = True) -> Dict:
         """
         Process new sample and compute spectrum.
 
@@ -264,21 +285,27 @@ class FFTFrequencyAnalyzer:
         self.buffer.push(x)
 
         if not self.buffer.is_full():
-            return {
+            self._last_result = {
                 "frequencies": [],
                 "magnitudes": [],
                 "peak_frequency": None,
-                "peak_magnitude": 0.0
+                "peak_magnitude": 0.0,
             }
+            return self._last_result
 
-        samples = self.buffer.get_samples()
+        if not compute:
+            return self._last_result
+
+        count = self.buffer.fill_samples(self._samples)
+        if count < self.window_size:
+            return self._last_result
 
         # Apply Hanning window to reduce spectral leakage
-        windowed = samples * self._window
+        self._windowed[:] = self._samples * self._window
 
         # Compute FFT
-        fft = np.fft.rfft(windowed)
-        magnitudes = np.abs(fft) / len(samples)
+        fft = np.fft.rfft(self._windowed)
+        magnitudes = np.abs(fft) / self.window_size
 
         # Frequency bins
         frequencies = self._frequencies
@@ -292,12 +319,13 @@ class FFTFrequencyAnalyzer:
             peak_freq = None
             peak_mag = 0.0
 
-        return {
+        self._last_result = {
             "frequencies": frequencies.tolist(),
             "magnitudes": magnitudes.tolist(),
             "peak_frequency": float(peak_freq) if peak_freq else None,
             "peak_magnitude": float(peak_mag)
         }
+        return self._last_result
 
     def reset(self) -> None:
         """Reset analyzer state."""
@@ -338,8 +366,24 @@ class OscillationDetector:
             if enable_fft
             else None
         )
+        self._update_counter = 0
+        self._last_result: Dict[str, Any] = {
+            "correlation_components": {},
+            "total_oscillation_energy": 0.0,
+            "dominant_frequency": None,
+            "dominant_magnitude": 0.0,
+            "fft_peak_frequency": None,
+            "fft_peak_magnitude": 0.0,
+        }
 
-    def update(self, x: float) -> Dict:
+    def update(
+        self,
+        x: float,
+        *,
+        load_shed: bool = False,
+        cadence: int = 1,
+        skip_fft: bool = False,
+    ) -> Dict:
         """
         Process sample with both detection methods.
 
@@ -349,18 +393,37 @@ class OscillationDetector:
         Returns:
             Combined oscillation analysis results
         """
+        self._update_counter += 1
+        cadence = max(cadence, 1)
+        should_compute = (self._update_counter % cadence) == 0
+
         # Correlation-based detection
-        components = self.freq_detector.update(x)
+        components = self.freq_detector.update(
+            x,
+            compute=not load_shed or should_compute,
+        )
+        if load_shed and not should_compute:
+            if self.fft_analyzer:
+                self.fft_analyzer.update(x, compute=False)
+            return self._last_result
+
         total_energy = self.freq_detector.get_total_oscillation_energy()
         dominant = self.freq_detector.get_dominant_frequency()
 
         # FFT-based analysis
         if self.fft_analyzer:
-            spectrum = self.fft_analyzer.update(x)
+            if load_shed and skip_fft:
+                self.fft_analyzer.update(x, compute=False)
+                spectrum = {"peak_frequency": None, "peak_magnitude": 0.0}
+            else:
+                spectrum = self.fft_analyzer.update(
+                    x,
+                    compute=not load_shed or should_compute,
+                )
         else:
             spectrum = {"peak_frequency": None, "peak_magnitude": 0.0}
 
-        return {
+        self._last_result = {
             "correlation_components": {
                 f: {"magnitude": c.magnitude, "energy": c.energy, "phase": c.phase}
                 for f, c in components.items()
@@ -371,9 +434,19 @@ class OscillationDetector:
             "fft_peak_frequency": spectrum["peak_frequency"],
             "fft_peak_magnitude": spectrum["peak_magnitude"]
         }
+        return self._last_result
 
     def reset(self) -> None:
         """Reset both detectors."""
         self.freq_detector.reset()
         if self.fft_analyzer:
             self.fft_analyzer.reset()
+        self._update_counter = 0
+        self._last_result = {
+            "correlation_components": {},
+            "total_oscillation_energy": 0.0,
+            "dominant_frequency": None,
+            "dominant_magnitude": 0.0,
+            "fft_peak_frequency": None,
+            "fft_peak_magnitude": 0.0,
+        }

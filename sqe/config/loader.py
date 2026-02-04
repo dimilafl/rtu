@@ -53,6 +53,25 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     return merged
 
 
+def _validate_override_keys(
+    override: Dict[str, Any],
+    base: Dict[str, Any],
+    path: str = "",
+) -> None:
+    for key, value in override.items():
+        if key not in base:
+            dotted = f"{path}{key}" if path else key
+            raise ConfigError(f"Unknown configuration key: {dotted}")
+        base_value = base[key]
+        if isinstance(value, dict):
+            if not isinstance(base_value, dict):
+                dotted = f"{path}{key}" if path else key
+                raise ConfigError(
+                    f"Configuration section '{dotted}' must not be a mapping"
+                )
+            _validate_override_keys(value, base_value, f"{path}{key}.")
+
+
 def load_config(user_path: Optional[str] = None) -> Dict[str, Any]:
     """
     Load configuration from defaults.yaml and optional user override.
@@ -66,6 +85,7 @@ def load_config(user_path: Optional[str] = None) -> Dict[str, Any]:
     defaults = _load_yaml(DEFAULT_CONFIG_PATH)
     if user_path:
         user_config = _load_yaml(Path(user_path))
+        _validate_override_keys(user_config, defaults)
         return _deep_merge(defaults, user_config)
     return defaults
 
@@ -92,6 +112,28 @@ def get_engine_max_signals(config: Dict[str, Any]) -> Optional[int]:
         return None
     max_signals = int(max_signals)
     return max_signals if max_signals > 0 else None
+
+
+def get_performance_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Get performance and load shedding settings from config."""
+    performance = config.get("performance", {})
+    compute_budget_ms = performance.get("compute_budget_ms")
+    if compute_budget_ms is not None:
+        compute_budget_ms = float(compute_budget_ms)
+        if compute_budget_ms <= 0:
+            compute_budget_ms = None
+    return {
+        "compute_budget_ms": compute_budget_ms,
+        "load_shed_p95_window": int(
+            performance.get("load_shed_p95_window", 50)
+        ),
+        "load_shed_oscillation_cadence": int(
+            performance.get("load_shed_oscillation_cadence", 3)
+        ),
+        "load_shed_skip_fft": bool(
+            performance.get("load_shed_skip_fft", True)
+        ),
+    }
 
 
 def get_logging_settings(config: Dict[str, Any]) -> Dict[str, Any]:

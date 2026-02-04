@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Union
+from typing import Any, Dict, Iterable, List, Optional, Protocol, Union
 
 from sqe.core.engine import ProcessedSignal
-from sqe.core.incidents import IncidentEvent, IncidentSeverity
+from sqe.core.incidents import IncidentCause, IncidentEvent, IncidentSeverity
 from sqe.core.group_incidents import GroupIncidentEvent
+from sqe.schema import SCHEMA_VERSION
 
 
 class QualityPublisher(Protocol):
@@ -85,6 +86,7 @@ class JsonLinesPublisher:
         dominant_cause = self._dominant_cause(signal.sqi_components)
         severity = self._severity_from_signal(signal)
         payload = {
+            "schema_version": SCHEMA_VERSION,
             "scan_timestamp": scan_timestamp,
             "signal_id": signal_id,
             "timestamp": signal.timestamp,
@@ -119,6 +121,7 @@ class JsonLinesPublisher:
     def _build_incident_row(event: IncidentEvent) -> Dict:
         incident = event.incident
         return {
+            "schema_version": event.schema_version,
             "event_type": event.event_type.value,
             "message": event.message,
             "recommended_action": event.recommended_action,
@@ -143,6 +146,7 @@ class JsonLinesPublisher:
         incident = event.incident
         details = incident.details or {}
         return {
+            "schema_version": event.schema_version,
             "group_id": incident.group_id,
             "group_incident_id": incident.group_incident_id,
             "timestamp": incident.last_timestamp,
@@ -158,24 +162,68 @@ class JsonLinesPublisher:
         }
 
 
+class OasysEnterpriseTransport(Protocol):
+    """Transport interface for AVEVA OASyS Enterprise payloads."""
+
+    def send_point(self, payload: Dict[str, Any]) -> None:
+        """Send a derived point payload."""
+
+    def send_event(self, payload: Dict[str, Any]) -> None:
+        """Send an incident event payload."""
+
+    def send_group_event(self, payload: Dict[str, Any]) -> None:
+        """Send a group incident event payload."""
+
+
+class JsonlOasysTransport:
+    """JSONL transport for OASyS derived points and events."""
+
+    def __init__(self, output_dir: Union[str, Path]) -> None:
+        self.output_dir = Path(output_dir)
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.points_path = self.output_dir / "oasys_points.jsonl"
+        self.events_path = self.output_dir / "oasys_events.jsonl"
+        self.group_events_path = self.output_dir / "oasys_group_events.jsonl"
+
+    def send_point(self, payload: Dict[str, Any]) -> None:
+        self._append_row(self.points_path, payload)
+
+    def send_event(self, payload: Dict[str, Any]) -> None:
+        self._append_row(self.events_path, payload)
+
+    def send_group_event(self, payload: Dict[str, Any]) -> None:
+        self._append_row(self.group_events_path, payload)
+
+    @staticmethod
+    def _append_row(path: Path, payload: Dict[str, Any]) -> None:
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, sort_keys=True))
+            handle.write("\n")
+
+
 class OasysEnterprisePublisher:
     """
-    Placeholder publisher for AVEVA OASyS Enterprise integration.
+    Publisher for AVEVA OASyS Enterprise integration.
 
-    Map SQI to derived points:
-      - SQI score
-      - dominant cause code
-      - severity code
-
-    Map incident events to event stream entries:
-      - incident started
-      - incident resolved
+    Maps SQI to derived points (score, cause code, severity code)
+    and maps incident events to event stream entries.
     """
 
     ALERT_LEVEL_CODES = {
         "none": 0,
         "warning": 1,
         "critical": 2,
+    }
+    CAUSE_CODES = {
+        IncidentCause.MISSING.value: 1,
+        IncidentCause.STALE.value: 2,
+        IncidentCause.STEP.value: 3,
+        IncidentCause.PLAUSIBILITY.value: 4,
+        IncidentCause.NOISE.value: 5,
+        IncidentCause.DRIFT.value: 6,
+        IncidentCause.SPIKES.value: 7,
+        IncidentCause.OSCILLATION.value: 8,
+        IncidentCause.UNKNOWN.value: 0,
     }
     INCIDENT_EVENT_CODES = {
         "started": "START",
@@ -189,16 +237,9 @@ class OasysEnterprisePublisher:
 
     def __init__(
         self,
-        send_point: Optional[Callable[[Dict[str, Any]], None]] = None,
-        send_event: Optional[Callable[[Dict[str, Any]], None]] = None,
-        send_group_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+        transport: OasysEnterpriseTransport,
     ) -> None:
-        self._send_point = send_point
-        self._send_event = send_event
-        self._send_group_event = send_group_event
-        self.published_points: List[Dict[str, Any]] = []
-        self.published_events: List[Dict[str, Any]] = []
-        self.published_group_events: List[Dict[str, Any]] = []
+        self.transport = transport
 
     def publish_processed(
         self,
@@ -226,22 +267,13 @@ class OasysEnterprisePublisher:
             self._emit_group_event(row)
 
     def _emit_point(self, payload: Dict[str, Any]) -> None:
-        if self._send_point:
-            self._send_point(payload)
-        else:
-            self.published_points.append(payload)
+        self.transport.send_point(payload)
 
     def _emit_event(self, payload: Dict[str, Any]) -> None:
-        if self._send_event:
-            self._send_event(payload)
-        else:
-            self.published_events.append(payload)
+        self.transport.send_event(payload)
 
     def _emit_group_event(self, payload: Dict[str, Any]) -> None:
-        if self._send_group_event:
-            self._send_group_event(payload)
-        else:
-            self.published_group_events.append(payload)
+        self.transport.send_group_event(payload)
 
     def _build_sqi_point(
         self,
@@ -252,6 +284,7 @@ class OasysEnterprisePublisher:
     ) -> Dict[str, Any]:
         dominant_cause = JsonLinesPublisher._dominant_cause(signal.sqi_components)
         severity_code = self.ALERT_LEVEL_CODES.get(signal.alert_level, 0)
+        cause_code = self.CAUSE_CODES.get(dominant_cause, 0)
         payload = {
             "type": "derived_point",
             "tag": f"{signal_id}:SQI",
@@ -261,6 +294,7 @@ class OasysEnterprisePublisher:
                 "sqi": signal.sqi,
                 "quality_class": signal.quality_class,
                 "dominant_cause": dominant_cause,
+                "cause_code": cause_code,
                 "severity_code": severity_code,
                 "alert_level": signal.alert_level,
                 "alert_flags": {

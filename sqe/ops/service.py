@@ -12,12 +12,14 @@ from sqe.core.incidents import IncidentEngine, IncidentEvent
 from sqe.core.group_incidents import GroupIncidentEngine, GroupIncidentEvent
 from sqe.core.grouping import GroupResolver
 from sqe.core.sample import Sample
+from sqe.schema import SCHEMA_VERSION
 
 
 @dataclass(frozen=True)
 class ProcessedScan:
     processed_signals: Dict[str, ProcessedSignal]
     suppression_stats: Optional[Dict[str, int]] = None
+    schema_version: str = SCHEMA_VERSION
 
 
 class RealtimeQualityService:
