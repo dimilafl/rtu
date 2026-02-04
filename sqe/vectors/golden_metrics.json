@@ -1,0 +1,8 @@
+{
+  "memory_estimate_bytes_max": 4838.400000000001,
+  "scan_p95_estimate_max": 2.5140149999999997,
+  "sqi": {
+    "mean": 0.0,
+    "tolerance": 0.01
+  }
+}

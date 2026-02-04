@@ -2,8 +2,26 @@
 
 gates:
   detection_f1_min: 0.75
+  incident_f1_min: 0.75
+  false_alarm_rate_max: 0.4
   mean_time_to_detect_scans_max: 5
   spam_ratio_max: 3.0
+  scan_p95_max: 200
+  memory_max_bytes: 50000000
+
+score_weights:
+  detection_f1: 1.0
+  incident_f1: 1.0
+  false_alarm_rate: -0.5
+  mean_time_to_detect_scans: -0.5
+  scan_p95: -0.25
+  memory_bytes: -0.25
+
+search:
+  strategy: successive_halving
+  seed: 13
+  retain_fraction: 0.5
+  scan_fractions: [0.25, 0.5, 1.0]
 
 incident_policy_sweep:
   start_sqi_threshold: [45, 50, 55]

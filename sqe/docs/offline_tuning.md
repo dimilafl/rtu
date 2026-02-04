@@ -9,8 +9,12 @@ The offline tuning workflow uses the existing `compute_metrics` output as
 hard gates:
 
 - `detection_f1` (minimum allowed F1 score)
+- `incident_f1` (minimum allowed F1 score, alias of detection F1)
+- `false_alarm_rate` (maximum allowed false-alarm rate)
 - `mean_time_to_detect_scans` (maximum allowed time to detect)
 - `spam_metrics.starts_ratio` (maximum allowed spam ratio)
+- `scan_p95_estimate` (maximum allowed scan p95 work estimate)
+- `memory_estimate_bytes` (maximum allowed memory estimate)
 
 Gates are configured in the sweep YAML so that runs that fail a gate are
 marked `passes_gates: false` and excluded from best-run selection.
@@ -68,14 +72,25 @@ Optional flags:
 - `--groups-config`: path to group incident config
 - `--mode`: `incident_policy`, `sqi`, or `all`
 
+## Search strategy
+
+The sweep config supports constraint-aware search. Set `search.strategy` to
+`successive_halving` to prune candidates across progressively larger subsets
+of the replay scans. Candidates are filtered up front by the scan p95 and
+memory gates before replaying, and the remaining candidates are ranked with
+the composite score weights.
+
 ## Outputs
 
 Each sweep writes:
 
 - `summary.json`: high-level best-run and gate summary
 - `results.jsonl`: per-run metrics with overrides
+- `gate_failures.jsonl`: rejected runs with gate failures
 - `config.yaml`: the exact config used per run
 - `incidents.jsonl` / `group_incidents.jsonl`: replay outputs for auditing
+- `best_config.yaml`: merged deployable config (written in the root output dir)
+- `best_config_delta.md`: human-readable delta from base config
 
 Use `summary.json` to compare the best run's metrics against the gates and
 verify that detection improves without increasing spam ratio.

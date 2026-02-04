@@ -16,6 +16,8 @@ def test_vectors_are_stable(tmp_path):
         "groups.yaml",
         "expected_incidents.jsonl",
         "expected_group_incidents.jsonl",
+        "golden_metrics.json",
+        "schema_snapshot.json",
     ):
         generated = (out_dir / name).read_bytes()
         expected = (repo_vectors / name).read_bytes()

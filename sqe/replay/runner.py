@@ -40,6 +40,7 @@ def run_replay(
     groups_config_path: Optional[str],
     out_dir: str,
     write_processed: bool = True,
+    max_scans: Optional[int] = None,
 ) -> None:
     """Run deterministic replay of scan inputs."""
     config = load_config(config_path)
@@ -111,7 +112,11 @@ def run_replay(
                 processed_handle = stack.enter_context(
                     processed_path.open("a", encoding="utf-8")
                 )
-            for scan_index, timestamp, samples in _iter_scans(input_jsonl_path):
+            for scan_offset, (scan_index, timestamp, samples) in enumerate(
+                _iter_scans(input_jsonl_path)
+            ):
+                if max_scans is not None and scan_offset >= max_scans:
+                    break
                 service.scan_index = scan_index
                 processed_scan, incident_events, group_events = (
                     service.process_scan_samples(samples, timestamp=timestamp)
