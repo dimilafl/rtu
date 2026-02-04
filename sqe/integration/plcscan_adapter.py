@@ -26,6 +26,9 @@ class PLCScanAdapter:
         scan_interval: float = 0.1,
         warn_on_overrun: bool = True,
         logger: Optional[logging.Logger] = None,
+        enable_callbacks: bool = True,
+        track_performance: bool = True,
+        max_scan_history: int = 100,
     ):
         """
         Initialize PLC scan adapter.
@@ -38,12 +41,14 @@ class PLCScanAdapter:
         self.scan_interval = scan_interval
         self.warn_on_overrun = warn_on_overrun
         self.logger = logger or logging.getLogger(__name__)
+        self.enable_callbacks = enable_callbacks
+        self.track_performance = track_performance
 
         # Scan metrics
         self.scan_number = 0
         self.last_scan_time: Optional[float] = None
         self.scan_durations = []
-        self.max_scan_history = 100
+        self.max_scan_history = max_scan_history
         self.error_count = 0
         self.last_error: Optional[str] = None
         self.overruns = 0
@@ -51,6 +56,26 @@ class PLCScanAdapter:
         # Callbacks
         self.pre_scan_callback: Optional[Callable] = None
         self.post_scan_callback: Optional[Callable] = None
+
+    @classmethod
+    def from_config(
+        cls,
+        engine: SignalQualityEngine,
+        config: Dict[str, Any],
+        logger: Optional[logging.Logger] = None,
+    ) -> "PLCScanAdapter":
+        """Construct adapter from merged configuration dictionary."""
+        integration = config.get("integration", {})
+        plcscan = integration.get("plcscan", {})
+        return cls(
+            engine=engine,
+            scan_interval=float(config.get("engine", {}).get("scan_interval", 0.1)),
+            warn_on_overrun=bool(plcscan.get("warn_on_overrun", True)),
+            logger=logger,
+            enable_callbacks=bool(plcscan.get("enable_callbacks", True)),
+            track_performance=bool(plcscan.get("track_performance", True)),
+            max_scan_history=int(plcscan.get("max_scan_history", 100)),
+        )
 
     def set_pre_scan_callback(self, callback: Callable[[int], None]) -> None:
         """
@@ -94,7 +119,7 @@ class PLCScanAdapter:
         self.scan_number += 1
 
         # Pre-scan callback
-        if self.pre_scan_callback:
+        if self.enable_callbacks and self.pre_scan_callback:
             self.pre_scan_callback(self.scan_number)
 
         # Process all signals through SQE
@@ -116,9 +141,10 @@ class PLCScanAdapter:
         elapsed = perf_end - perf_start
 
         # Track scan performance
-        self.scan_durations.append(scan_duration)
-        if len(self.scan_durations) > self.max_scan_history:
-            self.scan_durations = self.scan_durations[-self.max_scan_history:]
+        if self.track_performance:
+            self.scan_durations.append(scan_duration)
+            if len(self.scan_durations) > self.max_scan_history:
+                self.scan_durations = self.scan_durations[-self.max_scan_history:]
 
         # Calculate timing metrics
         if self.last_scan_time is not None:
@@ -157,7 +183,7 @@ class PLCScanAdapter:
         }
 
         # Post-scan callback
-        if self.post_scan_callback:
+        if self.enable_callbacks and self.post_scan_callback:
             self.post_scan_callback(self.scan_number, scan_duration, scan_result)
 
         return scan_result
