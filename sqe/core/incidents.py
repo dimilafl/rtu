@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqe.core.engine import ProcessedSignal
+from sqe.schema import SCHEMA_VERSION
 
 
 class IncidentEventType(str, Enum):
@@ -73,6 +74,7 @@ class IncidentEvent:
     incident: QualityIncident
     message: str
     recommended_action: str
+    schema_version: str = SCHEMA_VERSION
 
 
 @dataclass

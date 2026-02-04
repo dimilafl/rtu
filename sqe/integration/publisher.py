@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Unio
 from sqe.core.engine import ProcessedSignal
 from sqe.core.incidents import IncidentEvent, IncidentSeverity
 from sqe.core.group_incidents import GroupIncidentEvent
+from sqe.schema import SCHEMA_VERSION
 
 
 class QualityPublisher(Protocol):
@@ -85,6 +86,7 @@ class JsonLinesPublisher:
         dominant_cause = self._dominant_cause(signal.sqi_components)
         severity = self._severity_from_signal(signal)
         payload = {
+            "schema_version": SCHEMA_VERSION,
             "scan_timestamp": scan_timestamp,
             "signal_id": signal_id,
             "timestamp": signal.timestamp,
@@ -119,6 +121,7 @@ class JsonLinesPublisher:
     def _build_incident_row(event: IncidentEvent) -> Dict:
         incident = event.incident
         return {
+            "schema_version": event.schema_version,
             "event_type": event.event_type.value,
             "message": event.message,
             "recommended_action": event.recommended_action,
@@ -143,6 +146,7 @@ class JsonLinesPublisher:
         incident = event.incident
         details = incident.details or {}
         return {
+            "schema_version": event.schema_version,
             "group_id": incident.group_id,
             "group_incident_id": incident.group_incident_id,
             "timestamp": incident.last_timestamp,

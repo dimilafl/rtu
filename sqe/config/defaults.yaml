@@ -54,7 +54,7 @@ frequency:
     - 1.0
   window_size: 50           # Correlation window size
   threshold: 0.5            # Detection threshold
-  use_fft: true             # Enable FFT-based analysis
+  enable_fft: true          # Enable FFT-based analysis
 
 # Signal Quality Index settings
 sqi:
