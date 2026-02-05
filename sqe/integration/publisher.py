@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Union
 
+from sqe.comms.health import CommsHealthClass, CommsHealthStatus, comms_status_sort_key
 from sqe.core.engine import ProcessedSignal
 from sqe.core.incidents import IncidentEvent, IncidentSeverity
 from sqe.core.group_incidents import GroupIncidentEvent
@@ -29,6 +30,9 @@ class QualityPublisher(Protocol):
     def publish_group_incidents(self, events: List[GroupIncidentEvent]) -> None:
         """Publish group incident events."""
 
+    def publish_comms_health(self, statuses: List[CommsHealthStatus]) -> None:
+        """Publish comms health statuses."""
+
 
 class JsonLinesPublisher:
     """
@@ -44,6 +48,7 @@ class JsonLinesPublisher:
         self.scans_path = self.output_dir / "scans.jsonl"
         self.incidents_path = self.output_dir / "incidents.jsonl"
         self.group_incidents_path = self.output_dir / "group_incidents.jsonl"
+        self.comms_health_path = self.output_dir / "comms_health.jsonl"
 
     def publish_processed(
         self,
@@ -67,12 +72,22 @@ class JsonLinesPublisher:
         rows = [self._build_group_incident_row(event) for event in events]
         self._append_rows(self.group_incidents_path, rows)
 
-    def _append_rows(self, path: Path, rows: Iterable[Dict]) -> None:
+    def publish_comms_health(self, statuses: List[CommsHealthStatus]) -> None:
+        rows = [
+            status.to_dict()
+            for status in sorted(statuses, key=comms_status_sort_key)
+            if status.health_class != CommsHealthClass.OK
+        ]
+        self._append_rows(self.comms_health_path, rows, sort_keys=False)
+
+    def _append_rows(
+        self, path: Path, rows: Iterable[Dict], *, sort_keys: bool = True
+    ) -> None:
         if not rows:
             return
         with path.open("a", encoding="utf-8") as handle:
             for row in rows:
-                handle.write(json.dumps(row, sort_keys=True))
+                handle.write(json.dumps(row, sort_keys=sort_keys))
                 handle.write("\n")
             handle.flush()
 
@@ -196,13 +211,16 @@ class OasysEnterprisePublisher:
         send_point: Optional[Callable[[Dict[str, Any]], None]] = None,
         send_event: Optional[Callable[[Dict[str, Any]], None]] = None,
         send_group_event: Optional[Callable[[Dict[str, Any]], None]] = None,
+        send_comms: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> None:
         self._send_point = send_point
         self._send_event = send_event
         self._send_group_event = send_group_event
+        self._send_comms = send_comms
         self.published_points: List[Dict[str, Any]] = []
         self.published_events: List[Dict[str, Any]] = []
         self.published_group_events: List[Dict[str, Any]] = []
+        self.published_comms: List[Dict[str, Any]] = []
 
     def publish_processed(
         self,
@@ -229,6 +247,15 @@ class OasysEnterprisePublisher:
         for row in rows:
             self._emit_group_event(row)
 
+    def publish_comms_health(self, statuses: List[CommsHealthStatus]) -> None:
+        rows = [
+            status.to_dict()
+            for status in sorted(statuses, key=comms_status_sort_key)
+            if status.health_class != CommsHealthClass.OK
+        ]
+        for row in rows:
+            self._emit_comms(row)
+
     def _emit_point(self, payload: Dict[str, Any]) -> None:
         if self._send_point:
             self._send_point(payload)
@@ -246,6 +273,12 @@ class OasysEnterprisePublisher:
             self._send_group_event(payload)
         else:
             self.published_group_events.append(payload)
+
+    def _emit_comms(self, payload: Dict[str, Any]) -> None:
+        if self._send_comms:
+            self._send_comms(payload)
+        else:
+            self.published_comms.append(payload)
 
     def _build_sqi_point(
         self,

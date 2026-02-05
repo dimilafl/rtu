@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from sqe.comms.health import CommsHealthSummary
 from sqe.topology.model import NodeType
 
 
@@ -199,6 +200,7 @@ class TroubleshootReport:
     secondary: List[RootCauseCandidate] = field(default_factory=list)
     impacted_nodes: Dict[str, List[str]] = field(default_factory=dict)
     supporting_incidents: List[Dict[str, Any]] = field(default_factory=list)
+    comms_summary: Optional[CommsHealthSummary] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary with stable key ordering."""
@@ -206,8 +208,7 @@ class TroubleshootReport:
         sorted_impacted = {}
         for node_type in sorted(self.impacted_nodes.keys()):
             sorted_impacted[node_type] = sorted(self.impacted_nodes[node_type])
-
-        return {
+        payload = {
             "schema_version": self.schema_version,
             "scan_index": self.scan_index,
             "scan_timestamp": self.scan_timestamp,
@@ -218,6 +219,9 @@ class TroubleshootReport:
             "impacted_nodes": sorted_impacted,
             "supporting_incidents": list(self.supporting_incidents),
         }
+        if self.comms_summary is not None:
+            payload["comms_summary"] = self.comms_summary.to_dict()
+        return payload
 
     @staticmethod
     def create_ok_report(

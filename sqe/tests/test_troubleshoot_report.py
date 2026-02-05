@@ -8,6 +8,7 @@ import pytest
 
 from sqe.topology.loader import load_topology_dict
 from sqe.topology.index import TopologyIndex
+from sqe.comms.health import CommsHealthClass, CommsHealthStatus
 from sqe.rca.schema import (
     LeafObservation,
     TroubleshootReport,
@@ -194,6 +195,78 @@ class TestTroubleshootReport:
         # All node types should be present and sorted
         for node_type, node_ids in report.impacted_nodes.items():
             assert node_ids == sorted(node_ids)
+
+    def test_comms_summary_included_when_provided(self, test_topology):
+        """Test that comms summary is included and sorted."""
+        engine = RCAEngine(test_topology)
+
+        processed = {
+            f"sig{i}": {"quality_class": "GOOD", "sqi": 90.0}
+            for i in range(1, 9)
+        }
+
+        statuses = [
+            CommsHealthStatus(
+                node_id="rtu2",
+                node_type="RTU",
+                scan_index=1,
+                scan_timestamp=1.0,
+                timeout_rate=0.4,
+                retry_rate=0.0,
+                crc_error_rate=0.0,
+                avg_poll_cycle_ms=1000.0,
+                avg_jitter_ms=10.0,
+                bytes_tx_total=100,
+                bytes_rx_total=200,
+                health_class=CommsHealthClass.CRITICAL,
+                reasons=["timeout_rate_critical"],
+            ),
+            CommsHealthStatus(
+                node_id="rtu1",
+                node_type="RTU",
+                scan_index=1,
+                scan_timestamp=1.0,
+                timeout_rate=0.9,
+                retry_rate=0.0,
+                crc_error_rate=0.0,
+                avg_poll_cycle_ms=1000.0,
+                avg_jitter_ms=10.0,
+                bytes_tx_total=100,
+                bytes_rx_total=200,
+                health_class=CommsHealthClass.CRITICAL,
+                reasons=["timeout_rate_critical"],
+            ),
+            CommsHealthStatus(
+                node_id="pg1",
+                node_type="POLL_GROUP",
+                scan_index=1,
+                scan_timestamp=1.0,
+                timeout_rate=0.2,
+                retry_rate=0.0,
+                crc_error_rate=0.0,
+                avg_poll_cycle_ms=1000.0,
+                avg_jitter_ms=10.0,
+                bytes_tx_total=100,
+                bytes_rx_total=200,
+                health_class=CommsHealthClass.DEGRADED,
+                reasons=["timeout_rate_degraded"],
+            ),
+        ]
+
+        report = engine.analyze(
+            processed,
+            scan_index=1,
+            scan_timestamp=1.0,
+            comms_health_statuses=statuses,
+            comms_report_top_n=10,
+        )
+
+        assert report.comms_summary is not None
+        critical = report.comms_summary.critical_nodes
+        degraded = report.comms_summary.degraded_nodes
+        assert [status.node_id for status in critical] == ["rtu1", "rtu2"]
+        assert [status.node_id for status in degraded] == ["pg1"]
+        assert "comms_summary" in report.to_dict()
 
 
 class TestRCAEngine:

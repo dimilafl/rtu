@@ -11,6 +11,7 @@ import uuid
 from sqe.config.loader import (
     build_signal_config,
     configure_logging,
+    get_comms_health_settings,
     get_engine_auto_register,
     get_engine_max_signals_policy,
     get_engine_max_signals,
@@ -35,6 +36,8 @@ from sqe.core.incidents import (
     required_causes_from_policy,
 )
 from sqe.core.sample import Sample, parse_sample
+from sqe.comms.health import CommsHealthThresholds
+from sqe.comms.schema import CommsMetrics
 from sqe.integration.publisher import JsonLinesPublisher
 from sqe.replay.schema import validate_scan_record
 from sqe.ops.service import RealtimeQualityService
@@ -94,6 +97,10 @@ def run_replay(
     incident_engine = IncidentEngine(incident_policy, run_id=run_id)
     event_filter_policy = get_event_filter_policy(config)
     event_filter = EventFilter(event_filter_policy)
+    comms_settings = get_comms_health_settings(config)
+    comms_thresholds = CommsHealthThresholds.from_config(
+        comms_settings.get("thresholds", {})
+    )
 
     group_resolver = None
     group_incident_engine = None
@@ -111,6 +118,8 @@ def run_replay(
         group_incident_engine=group_incident_engine,
         event_filter=event_filter,
         event_filter_policy=event_filter_policy,
+        comms_enabled=comms_settings["enabled"],
+        comms_thresholds=comms_thresholds,
     )
 
     output_dir = Path(out_dir)
@@ -122,6 +131,8 @@ def run_replay(
         publisher.scans_path.write_text("", encoding="utf-8")
     publisher.incidents_path.write_text("", encoding="utf-8")
     publisher.group_incidents_path.write_text("", encoding="utf-8")
+    if comms_settings["enabled"]:
+        publisher.comms_health_path.write_text("", encoding="utf-8")
 
     try:
         with ExitStack() as stack:
@@ -130,14 +141,18 @@ def run_replay(
                 processed_handle = stack.enter_context(
                     processed_path.open("a", encoding="utf-8")
                 )
-            for scan_offset, (scan_index, timestamp, samples) in enumerate(
+            for scan_offset, (scan_index, timestamp, samples, comms_metrics) in enumerate(
                 _iter_scans(input_jsonl_path)
             ):
                 if max_scans is not None and scan_offset >= max_scans:
                     break
                 service.scan_index = scan_index
                 processed_scan, incident_events, group_events = (
-                    service.process_scan_samples(samples, timestamp=timestamp)
+                    service.process_scan_samples(
+                        samples,
+                        timestamp=timestamp,
+                        comms_metrics=comms_metrics,
+                    )
                 )
 
                 if write_processed:
@@ -160,6 +175,8 @@ def run_replay(
                 if group_events:
                     ordered_groups = sorted(group_events, key=_group_incident_sort_key)
                     publisher.publish_group_incidents(ordered_groups)
+                if processed_scan.comms_health:
+                    publisher.publish_comms_health(processed_scan.comms_health)
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid JSON in replay input: {exc}") from exc
 
@@ -187,7 +204,7 @@ def _scan_signal_ids(input_jsonl_path: str) -> List[str]:
 
 def _iter_scans(
     input_jsonl_path: str,
-) -> Iterable[Tuple[int, float, Dict[str, Sample]]]:
+) -> Iterable[Tuple[int, float, Dict[str, Sample], Optional[List[CommsMetrics]]]]:
     with Path(input_jsonl_path).open("r", encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
             if not line.strip():
@@ -209,7 +226,41 @@ def _iter_scans(
                     raise ValueError(
                         f"Invalid value for {signal_id} on line {line_number}: {exc}"
                     ) from exc
-            yield scan_index, timestamp, converted
+            comms_metrics = _parse_comms_metrics(record.get("comms_metrics"))
+            yield scan_index, timestamp, converted, comms_metrics
+
+
+def _parse_comms_metrics(
+    metrics: Optional[List[Dict[str, Any]]],
+) -> Optional[List[CommsMetrics]]:
+    if metrics is None:
+        return None
+    return [
+        CommsMetrics(
+            scan_index=int(item["scan_index"]),
+            scan_timestamp=float(item["scan_timestamp"]),
+            signal_id=item.get("signal_id"),
+            rtu_id=str(item["rtu_id"]),
+            poll_group_id=item.get("poll_group_id"),
+            comms_domain_id=item.get("comms_domain_id"),
+            poll_cycle_ms=(
+                float(item["poll_cycle_ms"])
+                if item["poll_cycle_ms"] is not None
+                else None
+            ),
+            poll_jitter_ms=(
+                float(item["poll_jitter_ms"])
+                if item["poll_jitter_ms"] is not None
+                else None
+            ),
+            timeout_count=int(item["timeout_count"]),
+            retry_count=int(item["retry_count"]),
+            crc_error_count=int(item["crc_error_count"]),
+            bytes_tx=int(item["bytes_tx"]),
+            bytes_rx=int(item["bytes_rx"]),
+        )
+        for item in metrics
+    ]
 
 
 def _build_processed_rows(
