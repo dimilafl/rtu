@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from sqe.comms.budget import BudgetConfig, UtilizationStatus, compute_utilization_status
 from sqe.comms.schema import CommsAggregate
@@ -22,9 +22,11 @@ def build_utilization_statuses(
     snapshot: TopologySnapshot,
     comms_aggregates: Dict[Tuple[str, str], CommsAggregate],
     cfg: BudgetConfig,
+    *,
+    topology_index: Optional[CommsTopologyIndex] = None,
 ) -> List[UtilizationStatus]:
     """Build utilization statuses in deterministic order."""
-    index = CommsTopologyIndex(snapshot)
+    index = topology_index or CommsTopologyIndex(snapshot)
     statuses: List[UtilizationStatus] = []
     default_scan_index, default_scan_timestamp = _reference_scan(comms_aggregates)
 

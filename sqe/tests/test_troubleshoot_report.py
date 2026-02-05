@@ -8,6 +8,7 @@ import pytest
 
 from sqe.topology.loader import load_topology_dict
 from sqe.topology.index import TopologyIndex
+from sqe.comms.budget import UtilizationStatus
 from sqe.comms.health import CommsHealthClass, CommsHealthStatus
 from sqe.rca.schema import (
     LeafObservation,
@@ -267,6 +268,155 @@ class TestTroubleshootReport:
         assert [status.node_id for status in critical] == ["rtu1", "rtu2"]
         assert [status.node_id for status in degraded] == ["pg1"]
         assert "comms_summary" in report.to_dict()
+
+    def test_comms_budget_summary_included_when_provided(self, test_topology):
+        """Test that comms budget summary is included and sorted."""
+        engine = RCAEngine(test_topology)
+
+        processed = {
+            f"sig{i}": {"quality_class": "GOOD", "sqi": 90.0}
+            for i in range(1, 9)
+        }
+
+        statuses = [
+            UtilizationStatus(
+                node_id="rtu2",
+                node_type="RTU",
+                scan_index=1,
+                scan_timestamp=1.0,
+                descendant_signal_count=2,
+                expected_bytes=200,
+                observed_bytes=1000,
+                observed_bps=8000.0,
+                utilization=0.95,
+                headroom=0.05,
+                level="CRITICAL",
+                reasons=["UTILIZATION_CRITICAL"],
+            ),
+            UtilizationStatus(
+                node_id="cd1",
+                node_type="COMMS_DOMAIN",
+                scan_index=1,
+                scan_timestamp=1.0,
+                descendant_signal_count=8,
+                expected_bytes=300,
+                observed_bytes=900,
+                observed_bps=7200.0,
+                utilization=0.92,
+                headroom=0.08,
+                level="CRITICAL",
+                reasons=["UTILIZATION_CRITICAL"],
+            ),
+            UtilizationStatus(
+                node_id="pg1",
+                node_type="POLL_GROUP",
+                scan_index=1,
+                scan_timestamp=1.0,
+                descendant_signal_count=4,
+                expected_bytes=250,
+                observed_bytes=600,
+                observed_bps=4800.0,
+                utilization=0.75,
+                headroom=0.25,
+                level="DEGRADED",
+                reasons=["UTILIZATION_DEGRADED"],
+            ),
+            UtilizationStatus(
+                node_id="rtu1",
+                node_type="RTU",
+                scan_index=1,
+                scan_timestamp=1.0,
+                descendant_signal_count=2,
+                expected_bytes=210,
+                observed_bytes=600,
+                observed_bps=4800.0,
+                utilization=0.75,
+                headroom=0.25,
+                level="DEGRADED",
+                reasons=["UTILIZATION_DEGRADED"],
+            ),
+        ]
+
+        report = engine.analyze(
+            processed,
+            scan_index=1,
+            scan_timestamp=1.0,
+            comms_budget_statuses=statuses,
+            comms_budget_report_top_n=1,
+        )
+
+        assert report.comms_budget_summary is not None
+        summary = report.comms_budget_summary
+        assert summary.bottleneck_node is not None
+        assert summary.bottleneck_node.node_id == "rtu2"
+        assert [status.node_id for status in summary.critical_utilization_nodes] == [
+            "rtu2"
+        ]
+        assert [status.node_id for status in summary.degraded_utilization_nodes] == [
+            "pg1"
+        ]
+        assert "comms_budget_summary" in report.to_dict()
+
+    def test_comms_budget_summary_deterministic(self, test_topology):
+        """Test comms budget summary determinism across runs."""
+        engine = RCAEngine(test_topology)
+
+        processed = {
+            f"sig{i}": {"quality_class": "GOOD", "sqi": 90.0}
+            for i in range(1, 9)
+        }
+
+        statuses = [
+            UtilizationStatus(
+                node_id="pg1",
+                node_type="POLL_GROUP",
+                scan_index=1,
+                scan_timestamp=1.0,
+                descendant_signal_count=4,
+                expected_bytes=250,
+                observed_bytes=600,
+                observed_bps=4800.0,
+                utilization=0.8,
+                headroom=0.2,
+                level="DEGRADED",
+                reasons=["UTILIZATION_DEGRADED"],
+            ),
+            UtilizationStatus(
+                node_id="rtu1",
+                node_type="RTU",
+                scan_index=1,
+                scan_timestamp=1.0,
+                descendant_signal_count=2,
+                expected_bytes=210,
+                observed_bytes=700,
+                observed_bps=5600.0,
+                utilization=0.9,
+                headroom=0.1,
+                level="CRITICAL",
+                reasons=["UTILIZATION_CRITICAL"],
+            ),
+        ]
+
+        report1 = engine.analyze(
+            processed,
+            scan_index=1,
+            scan_timestamp=1.0,
+            comms_budget_statuses=statuses,
+            comms_budget_report_top_n=10,
+        )
+
+        engine.reset()
+        report2 = engine.analyze(
+            processed,
+            scan_index=1,
+            scan_timestamp=1.0,
+            comms_budget_statuses=statuses,
+            comms_budget_report_top_n=10,
+        )
+
+        json1 = json.dumps(report1.to_dict(), sort_keys=True)
+        json2 = json.dumps(report2.to_dict(), sort_keys=True)
+        assert json1 == json2
 
 
 class TestRCAEngine:

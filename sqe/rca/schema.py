@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from sqe.comms.budget import UtilizationStatus
 from sqe.comms.health import CommsHealthSummary
 from sqe.topology.model import NodeType
 
@@ -201,6 +202,7 @@ class TroubleshootReport:
     impacted_nodes: Dict[str, List[str]] = field(default_factory=dict)
     supporting_incidents: List[Dict[str, Any]] = field(default_factory=list)
     comms_summary: Optional[CommsHealthSummary] = None
+    comms_budget_summary: Optional["CommsBudgetSummary"] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary with stable key ordering."""
@@ -221,6 +223,8 @@ class TroubleshootReport:
         }
         if self.comms_summary is not None:
             payload["comms_summary"] = self.comms_summary.to_dict()
+        if self.comms_budget_summary is not None:
+            payload["comms_budget_summary"] = self.comms_budget_summary.to_dict()
         return payload
 
     @staticmethod
@@ -257,3 +261,47 @@ def normalize_quality_class(quality_class: Optional[str]) -> str:
     if normalized in KNOWN_QUALITY_CLASSES:
         return normalized
     return "GOOD"
+
+
+@dataclass
+class CommsBudgetSummary:
+    """Summary of comms budget utilization statuses for troubleshooting."""
+
+    bottleneck_node: Optional[UtilizationStatus]
+    critical_utilization_nodes: List[UtilizationStatus]
+    degraded_utilization_nodes: List[UtilizationStatus]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary with stable key ordering."""
+        return {
+            "bottleneck_node": (
+                _utilization_status_to_dict(self.bottleneck_node)
+                if self.bottleneck_node
+                else None
+            ),
+            "critical_utilization_nodes": [
+                _utilization_status_to_dict(status)
+                for status in self.critical_utilization_nodes
+            ],
+            "degraded_utilization_nodes": [
+                _utilization_status_to_dict(status)
+                for status in self.degraded_utilization_nodes
+            ],
+        }
+
+
+def _utilization_status_to_dict(status: UtilizationStatus) -> Dict[str, Any]:
+    return {
+        "node_type": status.node_type,
+        "node_id": status.node_id,
+        "scan_index": status.scan_index,
+        "scan_timestamp": status.scan_timestamp,
+        "descendant_signal_count": status.descendant_signal_count,
+        "expected_bytes": status.expected_bytes,
+        "observed_bytes": status.observed_bytes,
+        "observed_bps": status.observed_bps,
+        "utilization": status.utilization,
+        "headroom": status.headroom,
+        "level": status.level,
+        "reasons": list(status.reasons),
+    }
