@@ -242,6 +242,30 @@ rca:
         floor: 0.0
         ceiling: 1.2
 
+  comms_scoring:
+    enabled: true
+    leaf_comms_gate: 0.35
+    coherence_k_scans: 4
+    weights:
+      comms_boost: 0.35
+      comms_counter: 0.25
+    node_type_multiplier:
+      comms_domain: 1.0
+      poll_group: 1.0
+      rtu: 0.5
+      signal: 0.0
+    leaf_likeness_weights:
+      missing_fraction: 0.6
+      coherence: 0.5
+      non_missing_fraction: 0.9
+    normalization:
+      utilization_degraded: 0.70
+      utilization_critical: 0.90
+      timeout_rate_degraded: 0.02
+      timeout_rate_critical: 0.10
+      jitter_ms_degraded: 250
+      jitter_ms_critical: 750
+
   confidence:
     required_scans: 2
     margin_scale: 0.2

@@ -29,6 +29,7 @@ from sqe.rca.evidence import (
 from sqe.rca.state import RCAState
 from sqe.rca.scoring import (
     ScoringConfig,
+    CommsScoringConfig,
     score_candidates,
     get_default_scoring_config,
     get_primary_and_secondary,
@@ -166,6 +167,8 @@ class RCAEngine:
             observations,
             self._state,
             self._scoring_config,
+            comms_budget_statuses=comms_budget_statuses,
+            comms_health_statuses=comms_health_statuses,
         )
 
         # Compute confidence
@@ -323,6 +326,7 @@ def create_rca_engine_from_config(
         coherence_k_scans=scoring_dict.get("coherence_k_scans", 5),
         min_fraction_by_type=scoring_dict.get("min_fraction_by_type"),
         type_score_norm=scoring_dict.get("type_score_norm"),
+        comms_scoring=CommsScoringConfig.from_dict(config.get("comms_scoring")),
     )
 
     # Extract confidence config
