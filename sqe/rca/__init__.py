@@ -38,6 +38,12 @@ from sqe.rca.node_incidents import (
     NodeIncidentTracker,
     get_default_incident_config,
 )
+from sqe.rca.suppression import (
+    SuppressionConfig,
+    SuppressionManager,
+    get_default_suppression_config,
+    create_suppression_manager,
+)
 
 __all__ = [
     "NodeEvidence",
@@ -66,4 +72,8 @@ __all__ = [
     "NodeIncidentConfig",
     "NodeIncidentTracker",
     "get_default_incident_config",
+    "SuppressionConfig",
+    "SuppressionManager",
+    "get_default_suppression_config",
+    "create_suppression_manager",
 ]
