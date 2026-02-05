@@ -6,8 +6,11 @@ Deterministic scoring algorithm for ranking root cause candidates.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set
+from math import exp
+from typing import Any, Dict, List, Optional, Set, Tuple
 
+from sqe.comms.budget import UtilizationStatus
+from sqe.comms.health import CommsHealthStatus
 from sqe.topology.model import NodeType, TopologySnapshot
 from sqe.topology.index import TopologyIndex
 from sqe.rca.schema import (
@@ -29,6 +32,7 @@ class ScoringConfig:
         min_fraction_by_type: Minimum affected fraction to be a candidate
         type_score_norm: Normalization parameters per type
         representative_signals_max: Max representative signals to include
+        comms_scoring: Configuration for comms-aware scoring terms
     """
 
     weights: Dict[str, float]
@@ -36,6 +40,7 @@ class ScoringConfig:
     min_fraction_by_type: Dict[str, float] = None
     type_score_norm: Dict[str, Dict[str, float]] = None
     representative_signals_max: int = 12
+    comms_scoring: "CommsScoringConfig" = None
 
     def __post_init__(self):
         if self.min_fraction_by_type is None:
@@ -52,6 +57,64 @@ class ScoringConfig:
                 "rtu": {"floor": 0.0, "ceiling": 1.2},
                 "signal": {"floor": 0.0, "ceiling": 1.2},
             }
+        if self.comms_scoring is None:
+            self.comms_scoring = CommsScoringConfig()
+
+
+@dataclass
+class CommsScoringConfig:
+    """Configuration for comms-aware RCA scoring terms."""
+
+    enabled: bool = True
+    leaf_comms_gate: float = 0.35
+    coherence_k_scans: int = 4
+    weights: Dict[str, float] = None
+    node_type_multiplier: Dict[str, float] = None
+    leaf_likeness_weights: Dict[str, float] = None
+    normalization: Dict[str, float] = None
+
+    def __post_init__(self) -> None:
+        if self.weights is None:
+            self.weights = {
+                "comms_boost": 0.35,
+                "comms_counter": 0.25,
+            }
+        if self.node_type_multiplier is None:
+            self.node_type_multiplier = {
+                "comms_domain": 1.0,
+                "poll_group": 1.0,
+                "rtu": 0.5,
+                "signal": 0.0,
+            }
+        if self.leaf_likeness_weights is None:
+            self.leaf_likeness_weights = {
+                "missing_fraction": 0.6,
+                "coherence": 0.5,
+                "non_missing_fraction": 0.9,
+            }
+        if self.normalization is None:
+            self.normalization = {
+                "utilization_degraded": 0.70,
+                "utilization_critical": 0.90,
+                "timeout_rate_degraded": 0.02,
+                "timeout_rate_critical": 0.10,
+                "jitter_ms_degraded": 250,
+                "jitter_ms_critical": 750,
+            }
+
+    @classmethod
+    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "CommsScoringConfig":
+        if not data:
+            return cls()
+        return cls(
+            enabled=data.get("enabled", True),
+            leaf_comms_gate=data.get("leaf_comms_gate", 0.35),
+            coherence_k_scans=data.get("coherence_k_scans", 4),
+            weights=data.get("weights"),
+            node_type_multiplier=data.get("node_type_multiplier"),
+            leaf_likeness_weights=data.get("leaf_likeness_weights"),
+            normalization=data.get("normalization"),
+        )
 
 
 def get_default_scoring_config() -> ScoringConfig:
@@ -63,6 +126,7 @@ def get_default_scoring_config() -> ScoringConfig:
             "coherence": 0.20,
             "signature": 0.10,
         },
+        comms_scoring=CommsScoringConfig(),
     )
 
 
@@ -73,6 +137,9 @@ def score_candidates(
     observations: Dict[str, LeafObservation],
     state: RCAState,
     config: ScoringConfig,
+    *,
+    comms_budget_statuses: Optional[List[UtilizationStatus]] = None,
+    comms_health_statuses: Optional[List[CommsHealthStatus]] = None,
 ) -> List[RootCauseCandidate]:
     """Score and rank root cause candidates.
 
@@ -97,6 +164,18 @@ def score_candidates(
         NodeType.SIGNAL: 3,
     }
 
+    comms_config = config.comms_scoring
+    has_comms_inputs = bool(comms_budget_statuses or comms_health_statuses)
+    leaf_comms_likeness = _compute_leaf_comms_likeness(
+        observations,
+        comms_config,
+        enabled=comms_config.enabled and has_comms_inputs,
+    )
+    util_map, health_map = _index_comms_statuses(
+        comms_budget_statuses,
+        comms_health_statuses,
+    )
+
     for node_id, evidence in node_evidence.items():
         node = topology_snapshot.get_node(node_id)
         if node is None:
@@ -109,16 +188,30 @@ def score_candidates(
             continue
 
         # Compute score components
-        score_components = _compute_score_components(
+        base_components = _compute_score_components(
             evidence,
             config.weights,
         )
 
+        comms_components = _compute_comms_components(
+            evidence,
+            node.node_type.value,
+            leaf_comms_likeness,
+            comms_config,
+            util_map,
+            health_map,
+            enabled=comms_config.enabled and has_comms_inputs,
+        )
+
+        score_components = {**base_components, **comms_components}
+
         # Compute total score
         total_score = sum(
             config.weights.get(component, 0.0) * value
-            for component, value in score_components.items()
+            for component, value in base_components.items()
         )
+        total_score += score_components["comms_boost"]
+        total_score -= score_components["comms_counter"]
 
         # Normalize score by type
         norm_params = config.type_score_norm.get(
@@ -201,6 +294,173 @@ def _compute_score_components(
     return components
 
 
+def _compute_leaf_comms_likeness(
+    observations: Dict[str, LeafObservation],
+    comms_config: CommsScoringConfig,
+    *,
+    enabled: bool,
+) -> float:
+    if not enabled or not observations:
+        return 0.0
+
+    affected_ids = [
+        signal_id
+        for signal_id in sorted(observations.keys())
+        if observations[signal_id].is_affected
+    ]
+    affected_count = len(affected_ids)
+    if affected_count == 0:
+        return 0.0
+
+    missing_like = {"missing", "stale"}
+    missing_ids = [
+        signal_id
+        for signal_id in affected_ids
+        if observations[signal_id].cause in missing_like
+    ]
+    missing_count = len(missing_ids)
+    non_missing_count = affected_count - missing_count
+
+    missing_fraction = missing_count / affected_count
+    non_missing_fraction = non_missing_count / affected_count
+
+    onset_scans = [
+        observations[signal_id].onset_scan
+        for signal_id in missing_ids
+        if observations[signal_id].onset_scan is not None
+    ]
+    if onset_scans and comms_config.coherence_k_scans > 0:
+        onset_span = max(onset_scans) - min(onset_scans)
+        coherence = exp(-onset_span / comms_config.coherence_k_scans)
+    else:
+        coherence = 0.0
+
+    weights = comms_config.leaf_likeness_weights
+    raw_score = (
+        weights.get("missing_fraction", 0.0) * missing_fraction
+        + weights.get("coherence", 0.0) * coherence
+        - weights.get("non_missing_fraction", 0.0) * non_missing_fraction
+    )
+    leaf_comms_likeness = _clamp01(raw_score)
+    if leaf_comms_likeness < comms_config.leaf_comms_gate:
+        return 0.0
+    return leaf_comms_likeness
+
+
+def _index_comms_statuses(
+    comms_budget_statuses: Optional[List[UtilizationStatus]],
+    comms_health_statuses: Optional[List[CommsHealthStatus]],
+) -> Tuple[Dict[Tuple[str, str], UtilizationStatus], Dict[Tuple[str, str], CommsHealthStatus]]:
+    util_map: Dict[Tuple[str, str], UtilizationStatus] = {}
+    health_map: Dict[Tuple[str, str], CommsHealthStatus] = {}
+
+    if comms_budget_statuses:
+        for status in sorted(
+            comms_budget_statuses,
+            key=lambda s: (s.node_type, s.node_id),
+        ):
+            util_map[(status.node_type.lower(), status.node_id)] = status
+
+    if comms_health_statuses:
+        for status in sorted(
+            comms_health_statuses,
+            key=lambda s: (s.node_type, s.node_id),
+        ):
+            health_map[(status.node_type.lower(), status.node_id)] = status
+
+    return util_map, health_map
+
+
+def _compute_node_comms_strength(
+    node_type: str,
+    node_id: str,
+    comms_config: CommsScoringConfig,
+    util_map: Dict[Tuple[str, str], UtilizationStatus],
+    health_map: Dict[Tuple[str, str], CommsHealthStatus],
+) -> float:
+    util_status = util_map.get((node_type, node_id))
+    health_status = health_map.get((node_type, node_id))
+    if util_status is None or health_status is None:
+        return 0.0
+
+    normalization = comms_config.normalization
+    util_norm = _normalize_value(
+        util_status.utilization,
+        normalization["utilization_degraded"],
+        normalization["utilization_critical"],
+    )
+    timeout_norm = _normalize_value(
+        health_status.timeout_rate,
+        normalization["timeout_rate_degraded"],
+        normalization["timeout_rate_critical"],
+    )
+    jitter_value = health_status.avg_jitter_ms
+    if jitter_value is None:
+        return 0.0
+    jitter_norm = _normalize_value(
+        jitter_value,
+        normalization["jitter_ms_degraded"],
+        normalization["jitter_ms_critical"],
+    )
+
+    return _clamp01((util_norm + timeout_norm + jitter_norm) / 3.0)
+
+
+def _compute_comms_components(
+    evidence: NodeEvidence,
+    node_type: str,
+    leaf_comms_likeness: float,
+    comms_config: CommsScoringConfig,
+    util_map: Dict[Tuple[str, str], UtilizationStatus],
+    health_map: Dict[Tuple[str, str], CommsHealthStatus],
+    *,
+    enabled: bool,
+) -> Dict[str, float]:
+    components: Dict[str, float] = {
+        "comms_boost": 0.0,
+        "comms_counter": 0.0,
+        "leaf_comms_likeness": leaf_comms_likeness if enabled else 0.0,
+        "node_comms_strength": 0.0,
+        "alignment": 0.0,
+    }
+
+    if not enabled or leaf_comms_likeness <= 0.0:
+        return components
+
+    multiplier = comms_config.node_type_multiplier.get(node_type, 0.0)
+    if multiplier <= 0.0:
+        return components
+
+    node_strength = _compute_node_comms_strength(
+        node_type,
+        evidence.node_id,
+        comms_config,
+        util_map,
+        health_map,
+    )
+    alignment = _clamp01(evidence.affected_fraction) * _clamp01(
+        max(0.0, evidence.concentration_score),
+    )
+    weights = comms_config.weights
+    components["comms_boost"] = (
+        weights.get("comms_boost", 0.0)
+        * multiplier
+        * leaf_comms_likeness
+        * node_strength
+        * alignment
+    )
+    components["comms_counter"] = (
+        weights.get("comms_counter", 0.0)
+        * multiplier
+        * leaf_comms_likeness
+        * (1.0 - node_strength)
+        * _clamp01(evidence.affected_fraction)
+    )
+    components["node_comms_strength"] = node_strength
+    components["alignment"] = alignment
+    return components
+
+
 def _normalize_score(
     score: float,
     floor: float,
@@ -211,6 +471,16 @@ def _normalize_score(
         return 0.0
     normalized = (score - floor) / (ceiling - floor)
     return max(0.0, min(1.0, normalized))
+
+
+def _normalize_value(value: float, degraded: float, critical: float) -> float:
+    if critical <= degraded:
+        return 0.0
+    return _clamp01((value - degraded) / (critical - degraded))
+
+
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, value))
 
 
 def _determine_action_code(

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import pytest
 
+from sqe.comms.budget import UtilizationStatus
+from sqe.comms.health import CommsHealthClass, CommsHealthStatus
 from sqe.topology.loader import load_topology_dict
 from sqe.topology.index import TopologyIndex
 from sqe.rca.schema import LeafObservation, NodeEvidence
@@ -65,6 +67,51 @@ def test_topology():
     snapshot = load_topology_dict(data)
     index = TopologyIndex(snapshot)
     return snapshot, index
+
+
+def _make_budget_status(
+    node_type: str,
+    node_id: str,
+    utilization: float,
+) -> UtilizationStatus:
+    return UtilizationStatus(
+        node_type=node_type,
+        node_id=node_id,
+        scan_index=1,
+        scan_timestamp=1.0,
+        descendant_signal_count=4,
+        expected_bytes=1000,
+        observed_bytes=2000,
+        observed_bps=16000.0,
+        utilization=utilization,
+        headroom=1.0 - utilization,
+        level="CRITICAL" if utilization >= 0.9 else "OK",
+        reasons=[],
+    )
+
+
+def _make_health_status(
+    node_type: str,
+    node_id: str,
+    timeout_rate: float,
+    jitter_ms: float,
+) -> CommsHealthStatus:
+    health_class = CommsHealthClass.CRITICAL if timeout_rate >= 0.1 else CommsHealthClass.OK
+    return CommsHealthStatus(
+        node_id=node_id,
+        node_type=node_type,
+        scan_index=1,
+        scan_timestamp=1.0,
+        timeout_rate=timeout_rate,
+        retry_rate=0.0,
+        crc_error_rate=0.0,
+        avg_poll_cycle_ms=100.0,
+        avg_jitter_ms=jitter_ms,
+        bytes_tx_total=1000,
+        bytes_rx_total=1000,
+        health_class=health_class,
+        reasons=[],
+    )
 
 
 class TestScoringCandidates:
@@ -270,6 +317,212 @@ class TestScoringCandidates:
         # Same scores
         for c1, c2 in zip(candidates1, candidates2):
             assert c1.score == c2.score
+
+
+class TestCommsScoringTrackC:
+    """Tests for Track C comms-aware RCA scoring."""
+
+    def test_comms_like_with_saturation_boosts_poll_group(self, test_topology):
+        """Comms-like outage with saturation should boost poll_group."""
+        snapshot, index = test_topology
+        state = RCAState()
+        config = get_default_scoring_config()
+
+        observations = {
+            "sig1": LeafObservation("sig1", is_affected=True, cause="missing"),
+            "sig2": LeafObservation("sig2", is_affected=True, cause="missing"),
+            "sig3": LeafObservation("sig3", is_affected=True, cause="missing"),
+            "sig4": LeafObservation("sig4", is_affected=True, cause="missing"),
+            "sig5": LeafObservation("sig5", is_affected=False),
+            "sig6": LeafObservation("sig6", is_affected=False),
+            "sig7": LeafObservation("sig7", is_affected=False),
+            "sig8": LeafObservation("sig8", is_affected=False),
+        }
+
+        evidence = aggregate_node_evidence(
+            snapshot, index, observations, state,
+            scan_index=1, scan_timestamp=1.0,
+        )
+
+        comms_budget_statuses = [
+            _make_budget_status("POLL_GROUP", "pg1", utilization=0.95),
+        ]
+        comms_health_statuses = [
+            _make_health_status("POLL_GROUP", "pg1", timeout_rate=0.12, jitter_ms=900.0),
+        ]
+
+        candidates = score_candidates(
+            snapshot,
+            index,
+            evidence,
+            observations,
+            state,
+            config,
+            comms_budget_statuses=comms_budget_statuses,
+            comms_health_statuses=comms_health_statuses,
+        )
+
+        primary, _ = get_primary_and_secondary(candidates)
+
+        assert primary is not None
+        assert primary.node_type == "poll_group"
+        pg1_candidate = next((c for c in candidates if c.node_id == "pg1"), None)
+        assert pg1_candidate is not None
+        assert pg1_candidate.score_components["comms_boost"] > 0.0
+        assert pg1_candidate.score_components["comms_counter"] <= 0.01
+
+    def test_comms_like_without_saturation_adds_counter(self, test_topology):
+        """Comms-like outage with normal utilization should add counterevidence."""
+        snapshot, index = test_topology
+        state = RCAState()
+        config = get_default_scoring_config()
+
+        observations = {
+            "sig1": LeafObservation("sig1", is_affected=True, cause="missing"),
+            "sig2": LeafObservation("sig2", is_affected=True, cause="missing"),
+            "sig3": LeafObservation("sig3", is_affected=True, cause="missing"),
+            "sig4": LeafObservation("sig4", is_affected=True, cause="missing"),
+            "sig5": LeafObservation("sig5", is_affected=False),
+            "sig6": LeafObservation("sig6", is_affected=False),
+            "sig7": LeafObservation("sig7", is_affected=False),
+            "sig8": LeafObservation("sig8", is_affected=False),
+        }
+
+        evidence = aggregate_node_evidence(
+            snapshot, index, observations, state,
+            scan_index=1, scan_timestamp=1.0,
+        )
+
+        comms_budget_statuses = [
+            _make_budget_status("POLL_GROUP", "pg1", utilization=0.60),
+        ]
+        comms_health_statuses = [
+            _make_health_status("POLL_GROUP", "pg1", timeout_rate=0.0, jitter_ms=50.0),
+        ]
+
+        candidates = score_candidates(
+            snapshot,
+            index,
+            evidence,
+            observations,
+            state,
+            config,
+            comms_budget_statuses=comms_budget_statuses,
+            comms_health_statuses=comms_health_statuses,
+        )
+
+        pg1_candidate = next((c for c in candidates if c.node_id == "pg1"), None)
+        assert pg1_candidate is not None
+        assert pg1_candidate.score_components["comms_boost"] == 0.0
+        assert pg1_candidate.score_components["comms_counter"] > 0.0
+
+    def test_non_comms_fault_does_not_trigger_boost(self, test_topology):
+        """Non-comms faults should not get comms boost even with utilization."""
+        snapshot, index = test_topology
+        state = RCAState()
+        config = get_default_scoring_config()
+
+        observations = {
+            "sig1": LeafObservation("sig1", is_affected=True, cause="drift"),
+            "sig2": LeafObservation("sig2", is_affected=True, cause="noise"),
+            "sig3": LeafObservation("sig3", is_affected=False),
+            "sig4": LeafObservation("sig4", is_affected=False),
+            "sig5": LeafObservation("sig5", is_affected=False),
+            "sig6": LeafObservation("sig6", is_affected=False),
+            "sig7": LeafObservation("sig7", is_affected=False),
+            "sig8": LeafObservation("sig8", is_affected=False),
+        }
+
+        evidence = aggregate_node_evidence(
+            snapshot, index, observations, state,
+            scan_index=1, scan_timestamp=1.0,
+        )
+
+        comms_budget_statuses = [
+            _make_budget_status("COMMS_DOMAIN", "cd1", utilization=0.95),
+        ]
+        comms_health_statuses = [
+            _make_health_status("COMMS_DOMAIN", "cd1", timeout_rate=0.12, jitter_ms=900.0),
+        ]
+
+        candidates = score_candidates(
+            snapshot,
+            index,
+            evidence,
+            observations,
+            state,
+            config,
+            comms_budget_statuses=comms_budget_statuses,
+            comms_health_statuses=comms_health_statuses,
+        )
+
+        cd1_candidate = next((c for c in candidates if c.node_id == "cd1"), None)
+        assert cd1_candidate is not None
+        assert cd1_candidate.score_components["leaf_comms_likeness"] == 0.0
+        assert cd1_candidate.score_components["comms_boost"] == 0.0
+        assert cd1_candidate.score_components["comms_counter"] == 0.0
+        primary, _ = get_primary_and_secondary(candidates)
+        assert primary is not None
+        assert primary.node_type != "comms_domain"
+
+    def test_comms_scoring_deterministic_components(self, test_topology):
+        """Comms scoring should be deterministic with identical inputs."""
+        snapshot, index = test_topology
+        config = get_default_scoring_config()
+
+        observations = {
+            "sig1": LeafObservation("sig1", is_affected=True, cause="missing"),
+            "sig2": LeafObservation("sig2", is_affected=True, cause="missing"),
+            "sig3": LeafObservation("sig3", is_affected=False),
+            "sig4": LeafObservation("sig4", is_affected=False),
+            "sig5": LeafObservation("sig5", is_affected=False),
+            "sig6": LeafObservation("sig6", is_affected=False),
+            "sig7": LeafObservation("sig7", is_affected=False),
+            "sig8": LeafObservation("sig8", is_affected=False),
+        }
+
+        comms_budget_statuses = [
+            _make_budget_status("POLL_GROUP", "pg1", utilization=0.95),
+        ]
+        comms_health_statuses = [
+            _make_health_status("POLL_GROUP", "pg1", timeout_rate=0.12, jitter_ms=900.0),
+        ]
+
+        state1 = RCAState()
+        evidence1 = aggregate_node_evidence(
+            snapshot, index, observations, state1,
+            scan_index=1, scan_timestamp=1.0,
+        )
+        candidates1 = score_candidates(
+            snapshot,
+            index,
+            evidence1,
+            observations,
+            state1,
+            config,
+            comms_budget_statuses=comms_budget_statuses,
+            comms_health_statuses=comms_health_statuses,
+        )
+
+        state2 = RCAState()
+        evidence2 = aggregate_node_evidence(
+            snapshot, index, observations, state2,
+            scan_index=1, scan_timestamp=1.0,
+        )
+        candidates2 = score_candidates(
+            snapshot,
+            index,
+            evidence2,
+            observations,
+            state2,
+            config,
+            comms_budget_statuses=comms_budget_statuses,
+            comms_health_statuses=comms_health_statuses,
+        )
+
+        assert [c.node_id for c in candidates1] == [c.node_id for c in candidates2]
+        for c1, c2 in zip(candidates1, candidates2):
+            assert c1.score_components == c2.score_components
 
 
 class TestConfidence:

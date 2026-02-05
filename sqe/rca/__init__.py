@@ -16,6 +16,7 @@ from sqe.rca.evidence import (
 from sqe.rca.state import RCAState
 from sqe.rca.scoring import (
     ScoringConfig,
+    CommsScoringConfig,
     score_candidates,
     get_default_scoring_config,
     get_primary_and_secondary,
@@ -68,6 +69,7 @@ __all__ = [
     "select_representative_signals",
     "RCAState",
     "ScoringConfig",
+    "CommsScoringConfig",
     "score_candidates",
     "get_default_scoring_config",
     "get_primary_and_secondary",
