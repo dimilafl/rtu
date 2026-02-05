@@ -32,6 +32,12 @@ from sqe.rca.engine import (
     RCAEngine,
     create_rca_engine_from_config,
 )
+from sqe.rca.node_incidents import (
+    NodeIncident,
+    NodeIncidentConfig,
+    NodeIncidentTracker,
+    get_default_incident_config,
+)
 
 __all__ = [
     "NodeEvidence",
@@ -56,4 +62,8 @@ __all__ = [
     "get_confidence_assessment",
     "RCAEngine",
     "create_rca_engine_from_config",
+    "NodeIncident",
+    "NodeIncidentConfig",
+    "NodeIncidentTracker",
+    "get_default_incident_config",
 ]
