@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Protocol, Union
 
+from sqe.comms.budget import UtilizationStatus
 from sqe.comms.health import CommsHealthClass, CommsHealthStatus, comms_status_sort_key
 from sqe.core.engine import ProcessedSignal
 from sqe.core.incidents import IncidentEvent, IncidentSeverity
@@ -33,6 +34,9 @@ class QualityPublisher(Protocol):
     def publish_comms_health(self, statuses: List[CommsHealthStatus]) -> None:
         """Publish comms health statuses."""
 
+    def publish_comms_budget(self, statuses: List[UtilizationStatus]) -> None:
+        """Publish comms budget utilization statuses."""
+
 
 class JsonLinesPublisher:
     """
@@ -49,6 +53,7 @@ class JsonLinesPublisher:
         self.incidents_path = self.output_dir / "incidents.jsonl"
         self.group_incidents_path = self.output_dir / "group_incidents.jsonl"
         self.comms_health_path = self.output_dir / "comms_health.jsonl"
+        self.comms_budget_path = self.output_dir / "comms_budget.jsonl"
 
     def publish_processed(
         self,
@@ -80,14 +85,34 @@ class JsonLinesPublisher:
         ]
         self._append_rows(self.comms_health_path, rows, sort_keys=False)
 
+    def publish_comms_budget(self, statuses: List[UtilizationStatus]) -> None:
+        rows = [
+            self._build_comms_budget_row(status)
+            for status in sorted(statuses, key=self._comms_budget_sort_key)
+            if status.level in {"DEGRADED", "CRITICAL"}
+        ]
+        self._append_rows(
+            self.comms_budget_path,
+            rows,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
     def _append_rows(
-        self, path: Path, rows: Iterable[Dict], *, sort_keys: bool = True
+        self,
+        path: Path,
+        rows: Iterable[Dict],
+        *,
+        sort_keys: bool = True,
+        separators: Optional[tuple[str, str]] = None,
     ) -> None:
         if not rows:
             return
         with path.open("a", encoding="utf-8") as handle:
             for row in rows:
-                handle.write(json.dumps(row, sort_keys=sort_keys))
+                handle.write(
+                    json.dumps(row, sort_keys=sort_keys, separators=separators)
+                )
                 handle.write("\n")
             handle.flush()
 
@@ -175,6 +200,36 @@ class JsonLinesPublisher:
                 "members_degraded": details.get("members_degraded", 0),
             },
         }
+
+    @staticmethod
+    def _build_comms_budget_row(status: UtilizationStatus) -> Dict[str, Any]:
+        return {
+            "node_type": status.node_type,
+            "node_id": status.node_id,
+            "scan_index": status.scan_index,
+            "scan_timestamp": status.scan_timestamp,
+            "descendant_signal_count": status.descendant_signal_count,
+            "expected_bytes": status.expected_bytes,
+            "observed_bytes": status.observed_bytes,
+            "observed_bps": status.observed_bps,
+            "utilization": status.utilization,
+            "headroom": status.headroom,
+            "level": status.level,
+            "reasons": list(status.reasons),
+        }
+
+    @staticmethod
+    def _comms_budget_sort_key(
+        status: UtilizationStatus,
+    ) -> tuple[int, float, int, str]:
+        node_type_priority = {"COMMS_DOMAIN": 0, "POLL_GROUP": 1, "RTU": 2}
+        level_priority = {"CRITICAL": 0, "DEGRADED": 1, "OK": 2}
+        return (
+            level_priority.get(status.level, 99),
+            -status.utilization,
+            node_type_priority.get(status.node_type, 99),
+            status.node_id,
+        )
 
 
 class OasysEnterprisePublisher:

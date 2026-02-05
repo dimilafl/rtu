@@ -8,10 +8,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set
 
+from sqe.comms.budget import UtilizationStatus
 from sqe.comms.health import CommsHealthStatus, summarize_comms_health
 from sqe.topology.model import NodeType, TopologySnapshot
 from sqe.topology.index import TopologyIndex
 from sqe.rca.schema import (
+    CommsBudgetSummary,
     LeafObservation,
     NodeEvidence,
     RootCauseCandidate,
@@ -119,6 +121,8 @@ class RCAEngine:
         missing_ratios: Optional[Dict[str, float]] = None,
         comms_health_statuses: Optional[List[CommsHealthStatus]] = None,
         comms_report_top_n: int = 10,
+        comms_budget_statuses: Optional[List[UtilizationStatus]] = None,
+        comms_budget_report_top_n: int = 10,
     ) -> TroubleshootReport:
         """Perform root cause analysis for a scan.
 
@@ -182,6 +186,8 @@ class RCAEngine:
             scan_timestamp,
             comms_health_statuses,
             comms_report_top_n,
+            comms_budget_statuses,
+            comms_budget_report_top_n,
         )
 
     def _build_report(
@@ -194,6 +200,8 @@ class RCAEngine:
         scan_timestamp: float,
         comms_health_statuses: Optional[List[CommsHealthStatus]],
         comms_report_top_n: int,
+        comms_budget_statuses: Optional[List[UtilizationStatus]],
+        comms_budget_report_top_n: int,
     ) -> TroubleshootReport:
         """Build troubleshoot report from analysis results."""
         # Determine overall state
@@ -249,6 +257,13 @@ class RCAEngine:
                 comms_health_statuses, top_n=comms_report_top_n
             )
 
+        comms_budget_summary = None
+        if comms_budget_statuses:
+            comms_budget_summary = _summarize_comms_budget(
+                comms_budget_statuses,
+                top_n=comms_budget_report_top_n,
+            )
+
         return TroubleshootReport(
             schema_version=SCHEMA_VERSION,
             scan_index=scan_index,
@@ -260,6 +275,7 @@ class RCAEngine:
             impacted_nodes=impacted_nodes,
             supporting_incidents=supporting_incidents,
             comms_summary=comms_summary,
+            comms_budget_summary=comms_budget_summary,
         )
 
     def reset(self) -> None:
@@ -332,4 +348,39 @@ def create_rca_engine_from_config(
         supporting_incidents_max=config.get("supporting_incidents_max", 30),
         retention_scans=config.get("retention_scans", 2000),
         min_confidence_for_primary=min_confidence,
+    )
+
+
+def _summarize_comms_budget(
+    statuses: List[UtilizationStatus],
+    *,
+    top_n: int,
+) -> CommsBudgetSummary:
+    non_ok = [
+        status for status in statuses if status.level in {"CRITICAL", "DEGRADED"}
+    ]
+    ordered = sorted(non_ok, key=_comms_budget_sort_key)
+    bottleneck = ordered[0] if ordered else None
+    critical = [
+        status for status in ordered if status.level == "CRITICAL"
+    ][:top_n]
+    degraded = [
+        status for status in ordered if status.level == "DEGRADED"
+    ][:top_n]
+
+    return CommsBudgetSummary(
+        bottleneck_node=bottleneck,
+        critical_utilization_nodes=critical,
+        degraded_utilization_nodes=degraded,
+    )
+
+
+def _comms_budget_sort_key(status: UtilizationStatus) -> tuple[int, float, int, str]:
+    node_type_priority = {"COMMS_DOMAIN": 0, "POLL_GROUP": 1, "RTU": 2}
+    level_priority = {"CRITICAL": 0, "DEGRADED": 1, "OK": 2}
+    return (
+        level_priority.get(status.level, 99),
+        -status.utilization,
+        node_type_priority.get(status.node_type, 99),
+        status.node_id,
     )

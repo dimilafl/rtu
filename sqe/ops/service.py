@@ -11,6 +11,8 @@ from sqe.core.incidents import IncidentEngine, IncidentEvent
 from sqe.core.group_incidents import GroupIncidentEngine, GroupIncidentEvent
 from sqe.core.grouping import GroupResolver
 from sqe.core.sample import Sample
+from sqe.comms.api import build_utilization_statuses
+from sqe.comms.budget import BudgetConfig, UtilizationStatus
 from sqe.comms.health import (
     CommsHealthStatus,
     CommsHealthThresholds,
@@ -18,7 +20,9 @@ from sqe.comms.health import (
     classify_comms_health,
 )
 from sqe.comms.schema import CommsMetrics
+from sqe.comms.topology_index import CommsTopologyIndex
 from sqe.schema import SCHEMA_VERSION
+from sqe.topology.model import TopologySnapshot
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,7 @@ class ProcessedScan:
     processed_signals: Dict[str, ProcessedSignal]
     suppression_stats: Optional[Dict[str, int]] = None
     comms_health: Optional[List[CommsHealthStatus]] = None
+    comms_utilization_statuses: Optional[List[UtilizationStatus]] = None
     schema_version: str = SCHEMA_VERSION
 
 
@@ -43,6 +48,8 @@ class RealtimeQualityService:
         *,
         comms_enabled: bool = False,
         comms_thresholds: Optional[CommsHealthThresholds] = None,
+        comms_budget_config: Optional[BudgetConfig] = None,
+        topology_snapshot: Optional[TopologySnapshot] = None,
     ) -> None:
         self.engine = engine
         self.incident_engine = incident_engine
@@ -54,7 +61,18 @@ class RealtimeQualityService:
         self.comms_thresholds = (
             comms_thresholds or CommsHealthThresholds.from_config({})
         )
+        self.comms_budget_config = comms_budget_config
+        self._topology_snapshot = topology_snapshot
+        self._comms_topology_index: Optional[CommsTopologyIndex] = None
+        self._comms_topology_hash: Optional[str] = None
         self.scan_index = 0
+
+    def set_topology_snapshot(self, snapshot: TopologySnapshot) -> None:
+        """Update the topology snapshot used for comms budgeting."""
+        self._topology_snapshot = snapshot
+        if snapshot.version_hash != self._comms_topology_hash:
+            self._comms_topology_index = None
+            self._comms_topology_hash = snapshot.version_hash
 
     def process_scan(
         self,
@@ -124,16 +142,15 @@ class RealtimeQualityService:
             if stats:
                 suppression_stats = stats
         self.scan_index += 1
-        comms_health: Optional[List[CommsHealthStatus]] = None
-        if self.comms_enabled and comms_metrics:
-            aggregates = aggregate_comms_metrics(comms_metrics)
-            comms_health = [
-                classify_comms_health(aggregate, self.comms_thresholds)
-                for _, aggregate in sorted(aggregates.items())
-            ]
+        comms_health, comms_utilization_statuses = self._build_comms_outputs(
+            comms_metrics
+        )
         return (
             ProcessedScan(
-                processed, suppression_stats, comms_health=comms_health
+                processed,
+                suppression_stats,
+                comms_health=comms_health,
+                comms_utilization_statuses=comms_utilization_statuses,
             ),
             events,
             group_events,
@@ -207,17 +224,66 @@ class RealtimeQualityService:
             if stats:
                 suppression_stats = stats
         self.scan_index += 1
-        comms_health: Optional[List[CommsHealthStatus]] = None
-        if self.comms_enabled and comms_metrics:
-            aggregates = aggregate_comms_metrics(comms_metrics)
-            comms_health = [
-                classify_comms_health(aggregate, self.comms_thresholds)
-                for _, aggregate in sorted(aggregates.items())
-            ]
+        comms_health, comms_utilization_statuses = self._build_comms_outputs(
+            comms_metrics
+        )
         return (
             ProcessedScan(
-                processed, suppression_stats, comms_health=comms_health
+                processed,
+                suppression_stats,
+                comms_health=comms_health,
+                comms_utilization_statuses=comms_utilization_statuses,
             ),
             events,
             group_events,
         )
+
+    def _build_comms_outputs(
+        self,
+        comms_metrics: Optional[List[CommsMetrics]],
+    ) -> Tuple[
+        Optional[List[CommsHealthStatus]], Optional[List[UtilizationStatus]]
+    ]:
+        comms_health: Optional[List[CommsHealthStatus]] = None
+        comms_utilization_statuses: Optional[List[UtilizationStatus]] = None
+        if not comms_metrics:
+            return comms_health, comms_utilization_statuses
+        budget_enabled = bool(
+            self.comms_budget_config and self.comms_budget_config.enabled
+        )
+        if not (self.comms_enabled or budget_enabled):
+            return comms_health, comms_utilization_statuses
+
+        aggregates = aggregate_comms_metrics(comms_metrics)
+        if self.comms_enabled:
+            comms_health = [
+                classify_comms_health(aggregate, self.comms_thresholds)
+                for _, aggregate in sorted(aggregates.items())
+            ]
+
+        if budget_enabled:
+            snapshot = self._topology_snapshot
+            if snapshot is None:
+                raise ValueError(
+                    "Topology snapshot is required when comms budget is enabled."
+                )
+            topology_index = self._get_comms_topology_index(snapshot)
+            comms_utilization_statuses = build_utilization_statuses(
+                snapshot,
+                aggregates,
+                self.comms_budget_config,
+                topology_index=topology_index,
+            )
+
+        return comms_health, comms_utilization_statuses
+
+    def _get_comms_topology_index(
+        self, snapshot: TopologySnapshot
+    ) -> CommsTopologyIndex:
+        if (
+            self._comms_topology_index is None
+            or snapshot.version_hash != self._comms_topology_hash
+        ):
+            self._comms_topology_index = CommsTopologyIndex(snapshot)
+            self._comms_topology_hash = snapshot.version_hash
+        return self._comms_topology_index
