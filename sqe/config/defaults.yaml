@@ -116,6 +116,20 @@ comms:
     poll_cycle_ms_critical: 5000
   report:
     top_n: 10
+  budget:
+    enabled: false
+    scan_interval_ms: 1000
+    bytes_per_signal_estimate: 18
+    protocol_overhead_bytes: 200
+    default_capacity_bps_by_type:
+      comms_domain: 9600
+      poll_group: 9600
+      rtu: 9600
+    per_node_capacity_bps: {}
+    thresholds:
+      utilization_degraded: 0.70
+      utilization_critical: 0.90
+      low_headroom: 0.10
 
 # Logging settings
 logging:
