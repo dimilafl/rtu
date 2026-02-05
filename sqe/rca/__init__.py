@@ -28,6 +28,10 @@ from sqe.rca.confidence import (
     get_default_confidence_config,
     get_confidence_assessment,
 )
+from sqe.rca.engine import (
+    RCAEngine,
+    create_rca_engine_from_config,
+)
 
 __all__ = [
     "NodeEvidence",
@@ -50,4 +54,6 @@ __all__ = [
     "compute_all_confidences",
     "get_default_confidence_config",
     "get_confidence_assessment",
+    "RCAEngine",
+    "create_rca_engine_from_config",
 ]
