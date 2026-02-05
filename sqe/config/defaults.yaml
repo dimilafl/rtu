@@ -157,3 +157,68 @@ event_filter:
     - "updated"
   allow_resolved_passthrough: true
   include_suppression_stats: true
+
+# Topology settings
+topology:
+  enabled: false
+  path: ""
+  allow_orphan_signals: false
+  node_type_priority:
+    - comms_domain
+    - poll_group
+    - rtu
+    - signal
+
+# Root Cause Analysis settings
+rca:
+  enabled: false
+
+  affected_policy:
+    use_active_incidents: true
+    use_quality_class: true
+    affected_classes:
+      - "POOR"
+      - "BAD"
+    missing_ratio_threshold: 0.2
+
+  representative_signals_max: 12
+  supporting_incidents_max: 30
+  retention_scans: 2000
+
+  scoring:
+    weights:
+      coverage: 0.45
+      concentration: 0.25
+      coherence: 0.20
+      signature: 0.10
+    coherence_k_scans: 5
+    min_fraction_by_type:
+      comms_domain: 0.25
+      poll_group: 0.25
+      rtu: 0.50
+      signal: 1.00
+    type_score_norm:
+      comms_domain:
+        floor: 0.0
+        ceiling: 1.2
+      poll_group:
+        floor: 0.0
+        ceiling: 1.2
+      rtu:
+        floor: 0.0
+        ceiling: 1.2
+      signal:
+        floor: 0.0
+        ceiling: 1.2
+
+  confidence:
+    required_scans: 2
+    margin_scale: 0.2
+
+  node_incidents:
+    enabled: true
+    start_persistence_scans: 2
+    resolve_persistence_scans: 2
+    cooldown_scans: 5
+    min_confidence_to_start: 0.75
+    emit_updates: true

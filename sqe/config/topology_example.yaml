@@ -1,0 +1,173 @@
+# Example Topology Configuration
+#
+# This file demonstrates the topology schema for root cause analysis.
+# The hierarchy is: comms_domain -> poll_group -> rtu -> signal
+#
+# Each node has:
+#   - id: Unique identifier (required)
+#   - type: One of comms_domain, poll_group, rtu, signal (required)
+#   - attrs: Optional attributes dict (values must be str, int, float, or bool)
+#
+# Edges define parent-child relationships.
+# Each child can have at most one parent.
+# Signals must have an RTU parent (unless allow_orphan_signals is set).
+
+nodes:
+  # Communications domains (top level)
+  - id: cd_north
+    type: comms_domain
+    attrs:
+      region: north
+      protocol: modbus_tcp
+
+  - id: cd_south
+    type: comms_domain
+    attrs:
+      region: south
+      protocol: dnp3
+
+  # Poll groups (under comms domains)
+  - id: pg_north_fast
+    type: poll_group
+    attrs:
+      poll_interval_ms: 100
+      priority: high
+
+  - id: pg_north_slow
+    type: poll_group
+    attrs:
+      poll_interval_ms: 1000
+      priority: low
+
+  - id: pg_south_main
+    type: poll_group
+    attrs:
+      poll_interval_ms: 500
+      priority: medium
+
+  # RTUs (under poll groups)
+  - id: rtu_n1
+    type: rtu
+    attrs:
+      ip_address: "192.168.1.10"
+      model: "RTU-500"
+
+  - id: rtu_n2
+    type: rtu
+    attrs:
+      ip_address: "192.168.1.11"
+      model: "RTU-500"
+
+  - id: rtu_n3
+    type: rtu
+    attrs:
+      ip_address: "192.168.1.20"
+      model: "RTU-300"
+
+  - id: rtu_s1
+    type: rtu
+    attrs:
+      ip_address: "192.168.2.10"
+      model: "RTU-500"
+
+  - id: rtu_s2
+    type: rtu
+    attrs:
+      ip_address: "192.168.2.11"
+      model: "RTU-300"
+
+  # Signals (under RTUs)
+  - id: sig_n1_temp
+    type: signal
+    attrs:
+      tag: N1_TEMP_01
+      units: degC
+
+  - id: sig_n1_pressure
+    type: signal
+    attrs:
+      tag: N1_PRESS_01
+      units: kPa
+
+  - id: sig_n1_flow
+    type: signal
+    attrs:
+      tag: N1_FLOW_01
+      units: m3h
+
+  - id: sig_n2_temp
+    type: signal
+    attrs:
+      tag: N2_TEMP_01
+      units: degC
+
+  - id: sig_n2_level
+    type: signal
+    attrs:
+      tag: N2_LEVEL_01
+      units: m
+
+  - id: sig_n3_temp
+    type: signal
+    attrs:
+      tag: N3_TEMP_01
+      units: degC
+
+  - id: sig_s1_temp
+    type: signal
+    attrs:
+      tag: S1_TEMP_01
+      units: degC
+
+  - id: sig_s1_pressure
+    type: signal
+    attrs:
+      tag: S1_PRESS_01
+      units: kPa
+
+  - id: sig_s2_flow
+    type: signal
+    attrs:
+      tag: S2_FLOW_01
+      units: m3h
+
+edges:
+  # Comms domain to poll group
+  - parent: cd_north
+    child: pg_north_fast
+  - parent: cd_north
+    child: pg_north_slow
+  - parent: cd_south
+    child: pg_south_main
+
+  # Poll group to RTU
+  - parent: pg_north_fast
+    child: rtu_n1
+  - parent: pg_north_fast
+    child: rtu_n2
+  - parent: pg_north_slow
+    child: rtu_n3
+  - parent: pg_south_main
+    child: rtu_s1
+  - parent: pg_south_main
+    child: rtu_s2
+
+  # RTU to signal
+  - parent: rtu_n1
+    child: sig_n1_temp
+  - parent: rtu_n1
+    child: sig_n1_pressure
+  - parent: rtu_n1
+    child: sig_n1_flow
+  - parent: rtu_n2
+    child: sig_n2_temp
+  - parent: rtu_n2
+    child: sig_n2_level
+  - parent: rtu_n3
+    child: sig_n3_temp
+  - parent: rtu_s1
+    child: sig_s1_temp
+  - parent: rtu_s1
+    child: sig_s1_pressure
+  - parent: rtu_s2
+    child: sig_s2_flow
