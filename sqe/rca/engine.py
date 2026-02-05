@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set
 
+from sqe.comms.health import CommsHealthStatus, summarize_comms_health
 from sqe.topology.model import NodeType, TopologySnapshot
 from sqe.topology.index import TopologyIndex
 from sqe.rca.schema import (
@@ -116,6 +117,8 @@ class RCAEngine:
         *,
         incident_events: Optional[List[Dict[str, Any]]] = None,
         missing_ratios: Optional[Dict[str, float]] = None,
+        comms_health_statuses: Optional[List[CommsHealthStatus]] = None,
+        comms_report_top_n: int = 10,
     ) -> TroubleshootReport:
         """Perform root cause analysis for a scan.
 
@@ -177,6 +180,8 @@ class RCAEngine:
             incident_events,
             scan_index,
             scan_timestamp,
+            comms_health_statuses,
+            comms_report_top_n,
         )
 
     def _build_report(
@@ -187,6 +192,8 @@ class RCAEngine:
         incident_events: Optional[List[Dict[str, Any]]],
         scan_index: int,
         scan_timestamp: float,
+        comms_health_statuses: Optional[List[CommsHealthStatus]],
+        comms_report_top_n: int,
     ) -> TroubleshootReport:
         """Build troubleshoot report from analysis results."""
         # Determine overall state
@@ -236,6 +243,12 @@ class RCAEngine:
             )
             supporting_incidents = sorted_incidents[:self._supporting_incidents_max]
 
+        comms_summary = None
+        if comms_health_statuses:
+            comms_summary = summarize_comms_health(
+                comms_health_statuses, top_n=comms_report_top_n
+            )
+
         return TroubleshootReport(
             schema_version=SCHEMA_VERSION,
             scan_index=scan_index,
@@ -246,6 +259,7 @@ class RCAEngine:
             secondary=secondary,
             impacted_nodes=impacted_nodes,
             supporting_incidents=supporting_incidents,
+            comms_summary=comms_summary,
         )
 
     def reset(self) -> None:

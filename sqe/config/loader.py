@@ -141,6 +141,18 @@ def get_performance_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def get_comms_health_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Get comms health settings from config with defaults."""
+    comms = config.get("comms", {})
+    thresholds = comms.get("thresholds", {}) if isinstance(comms, dict) else {}
+    report = comms.get("report", {}) if isinstance(comms, dict) else {}
+    return {
+        "enabled": bool(comms.get("enabled", False)),
+        "thresholds": thresholds,
+        "report_top_n": int(report.get("top_n", 10)),
+    }
+
+
 def get_logging_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     """Get logging settings from config with defaults."""
     logging_config = config.get("logging", {})

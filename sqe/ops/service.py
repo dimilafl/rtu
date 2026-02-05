@@ -11,6 +11,13 @@ from sqe.core.incidents import IncidentEngine, IncidentEvent
 from sqe.core.group_incidents import GroupIncidentEngine, GroupIncidentEvent
 from sqe.core.grouping import GroupResolver
 from sqe.core.sample import Sample
+from sqe.comms.health import (
+    CommsHealthStatus,
+    CommsHealthThresholds,
+    aggregate_comms_metrics,
+    classify_comms_health,
+)
+from sqe.comms.schema import CommsMetrics
 from sqe.schema import SCHEMA_VERSION
 
 
@@ -18,6 +25,7 @@ from sqe.schema import SCHEMA_VERSION
 class ProcessedScan:
     processed_signals: Dict[str, ProcessedSignal]
     suppression_stats: Optional[Dict[str, int]] = None
+    comms_health: Optional[List[CommsHealthStatus]] = None
     schema_version: str = SCHEMA_VERSION
 
 
@@ -32,6 +40,9 @@ class RealtimeQualityService:
         group_incident_engine: Optional[GroupIncidentEngine] = None,
         event_filter: Optional[EventFilter] = None,
         event_filter_policy: Optional[EventFilterPolicy] = None,
+        *,
+        comms_enabled: bool = False,
+        comms_thresholds: Optional[CommsHealthThresholds] = None,
     ) -> None:
         self.engine = engine
         self.incident_engine = incident_engine
@@ -39,6 +50,10 @@ class RealtimeQualityService:
         self.group_incident_engine = group_incident_engine
         self.event_filter = event_filter
         self.event_filter_policy = event_filter_policy
+        self.comms_enabled = comms_enabled
+        self.comms_thresholds = (
+            comms_thresholds or CommsHealthThresholds.from_config({})
+        )
         self.scan_index = 0
 
     def process_scan(
@@ -46,6 +61,7 @@ class RealtimeQualityService:
         signals: Dict[str, Optional[float]],
         timestamp: Optional[float] = None,
         comms_health_by_signal: Optional[Dict[str, Dict[str, Any]]] = None,
+        comms_metrics: Optional[List[CommsMetrics]] = None,
     ) -> Tuple[ProcessedScan, List[IncidentEvent], List[GroupIncidentEvent]]:
         timestamp = self.engine._resolve_scan_timestamp(timestamp)
 
@@ -108,13 +124,27 @@ class RealtimeQualityService:
             if stats:
                 suppression_stats = stats
         self.scan_index += 1
-        return ProcessedScan(processed, suppression_stats), events, group_events
+        comms_health: Optional[List[CommsHealthStatus]] = None
+        if self.comms_enabled and comms_metrics:
+            aggregates = aggregate_comms_metrics(comms_metrics)
+            comms_health = [
+                classify_comms_health(aggregate, self.comms_thresholds)
+                for _, aggregate in sorted(aggregates.items())
+            ]
+        return (
+            ProcessedScan(
+                processed, suppression_stats, comms_health=comms_health
+            ),
+            events,
+            group_events,
+        )
 
     def process_scan_samples(
         self,
         samples: Dict[str, Sample],
         timestamp: Optional[float] = None,
         comms_health_by_signal: Optional[Dict[str, Dict[str, Any]]] = None,
+        comms_metrics: Optional[List[CommsMetrics]] = None,
     ) -> Tuple[ProcessedScan, List[IncidentEvent], List[GroupIncidentEvent]]:
         timestamp = self.engine._resolve_scan_timestamp(timestamp)
 
@@ -177,4 +207,17 @@ class RealtimeQualityService:
             if stats:
                 suppression_stats = stats
         self.scan_index += 1
-        return ProcessedScan(processed, suppression_stats), events, group_events
+        comms_health: Optional[List[CommsHealthStatus]] = None
+        if self.comms_enabled and comms_metrics:
+            aggregates = aggregate_comms_metrics(comms_metrics)
+            comms_health = [
+                classify_comms_health(aggregate, self.comms_thresholds)
+                for _, aggregate in sorted(aggregates.items())
+            ]
+        return (
+            ProcessedScan(
+                processed, suppression_stats, comms_health=comms_health
+            ),
+            events,
+            group_events,
+        )

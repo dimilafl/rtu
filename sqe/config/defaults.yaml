@@ -100,6 +100,23 @@ integration:
     max_jitter_ms: 200.0
     max_dropout_streak: 3
 
+# Comms health settings
+comms:
+  enabled: false
+  thresholds:
+    timeout_rate_degraded: 0.02
+    timeout_rate_critical: 0.10
+    retry_rate_degraded: 0.05
+    retry_rate_critical: 0.20
+    crc_rate_degraded: 0.001
+    crc_rate_critical: 0.01
+    jitter_ms_degraded: 250
+    jitter_ms_critical: 750
+    poll_cycle_ms_degraded: 2000
+    poll_cycle_ms_critical: 5000
+  report:
+    top_n: 10
+
 # Logging settings
 logging:
   level: "INFO"             # DEBUG, INFO, WARNING, ERROR

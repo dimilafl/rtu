@@ -44,6 +44,7 @@ The Signal Quality Engine (SQE) is a real-time digital signal processing system 
 - PointCore-Simulator adapter
 - PLC_Scan_Engine adapter
 - SCADA-Comms-Front-End-Processor adapter
+ - Comms health aggregation and reporting
 
 ✅ **Performance**
 - Deterministic, real-time execution
@@ -113,6 +114,19 @@ sqe replay --in scans.jsonl --config cfg.yaml --out out_dir
 # Show version
 sqe version
 ```
+
+### Comms Health MVP
+
+Enable comms health in configuration to emit deterministic comms evidence and
+the `comms_health.jsonl` output during replay runs.
+
+```yaml
+comms:
+  enabled: true
+```
+
+The comms health report is written to `comms_health.jsonl` in the replay output
+directory. See `sqe/docs/comms_health_mvp.md` for fields and interpretation.
 
 ## Project Structure
 

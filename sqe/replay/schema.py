@@ -70,3 +70,63 @@ def validate_scan_record(record: Dict[str, Any]) -> None:
         raise ValueError(
             f"Invalid value for {signal_id}: must be number, null, or object"
         )
+    comms_metrics = record.get("comms_metrics")
+    if comms_metrics is None:
+        return
+    if not isinstance(comms_metrics, list):
+        raise ValueError("comms_metrics must be a list")
+    required_keys = {
+        "scan_index",
+        "scan_timestamp",
+        "signal_id",
+        "rtu_id",
+        "poll_group_id",
+        "comms_domain_id",
+        "poll_cycle_ms",
+        "poll_jitter_ms",
+        "timeout_count",
+        "retry_count",
+        "crc_error_count",
+        "bytes_tx",
+        "bytes_rx",
+    }
+    for idx, metric in enumerate(comms_metrics):
+        if not isinstance(metric, dict):
+            raise ValueError(f"comms_metrics[{idx}] must be a dict")
+        missing = required_keys - set(metric.keys())
+        if missing:
+            raise ValueError(
+                f"comms_metrics[{idx}] missing keys: {sorted(missing)}"
+            )
+        if not isinstance(metric["scan_index"], int):
+            raise ValueError("comms_metrics scan_index must be int")
+        if not isinstance(metric["scan_timestamp"], (int, float)):
+            raise ValueError("comms_metrics scan_timestamp must be number")
+        if metric["signal_id"] is not None and not isinstance(
+            metric["signal_id"], str
+        ):
+            raise ValueError("comms_metrics signal_id must be string or null")
+        if not isinstance(metric["rtu_id"], str):
+            raise ValueError("comms_metrics rtu_id must be string")
+        if metric["poll_group_id"] is not None and not isinstance(
+            metric["poll_group_id"], str
+        ):
+            raise ValueError("comms_metrics poll_group_id must be string or null")
+        if metric["comms_domain_id"] is not None and not isinstance(
+            metric["comms_domain_id"], str
+        ):
+            raise ValueError("comms_metrics comms_domain_id must be string or null")
+        if metric["poll_cycle_ms"] is not None and not isinstance(
+            metric["poll_cycle_ms"], (int, float)
+        ):
+            raise ValueError("comms_metrics poll_cycle_ms must be number or null")
+        if metric["poll_jitter_ms"] is not None and not isinstance(
+            metric["poll_jitter_ms"], (int, float)
+        ):
+            raise ValueError("comms_metrics poll_jitter_ms must be number or null")
+        for count_key in ("timeout_count", "retry_count", "crc_error_count"):
+            if not isinstance(metric[count_key], int):
+                raise ValueError(f"comms_metrics {count_key} must be int")
+        for bytes_key in ("bytes_tx", "bytes_rx"):
+            if not isinstance(metric[bytes_key], int):
+                raise ValueError(f"comms_metrics {bytes_key} must be int")
