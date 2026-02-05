@@ -44,6 +44,17 @@ from sqe.rca.suppression import (
     get_default_suppression_config,
     create_suppression_manager,
 )
+from sqe.rca.scenario import (
+    Scenario,
+    ScenarioRunner,
+    SignalFeedEntry,
+    ScenarioExpectation,
+    ValidationResult,
+    load_scenario_yaml,
+    save_scenario_yaml,
+    make_comms_outage_scenario,
+    make_rtu_failure_scenario,
+)
 
 __all__ = [
     "NodeEvidence",
@@ -76,4 +87,13 @@ __all__ = [
     "SuppressionManager",
     "get_default_suppression_config",
     "create_suppression_manager",
+    "Scenario",
+    "ScenarioRunner",
+    "SignalFeedEntry",
+    "ScenarioExpectation",
+    "ValidationResult",
+    "load_scenario_yaml",
+    "save_scenario_yaml",
+    "make_comms_outage_scenario",
+    "make_rtu_failure_scenario",
 ]
