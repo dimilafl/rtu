@@ -171,6 +171,8 @@ Orchestrates all components into unified processing pipeline.
 
 See also: [`dataflow_per_scan.md`](./dataflow_per_scan.md) for the exact service/engine/incident per-scan call order and determinism notes.
 
+See also: [`config_map.md`](./config_map.md) for configuration spaces, merge semantics, and wired-vs-unwired key inventory.
+
 ### Per-Scan Processing
 
 ```
