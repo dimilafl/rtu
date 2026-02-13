@@ -23,6 +23,17 @@ variance:
   spike_k_sigma: 3.0        # Spike threshold (std deviations)
   debounce_samples: 2       # Consecutive samples to confirm spike
 
+# Innovation model settings (config-only; runtime integration is gated)
+innovation:
+  enabled: false
+  q: 0.01
+  r: 1.0
+  beta: 0.05
+  s_min: 1.0e-12
+  p0_var: 1.0e6
+  v0_var: 1.0e4
+  z_spike: 6.0
+
 # Stale detection settings
 stale:
   window: 5                 # Identical samples to flag flatline

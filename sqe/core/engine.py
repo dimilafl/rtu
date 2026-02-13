@@ -79,6 +79,16 @@ class SignalConfig:
     drift_alert_threshold: float = 5.0
     spike_alert_threshold: float = 0.1
 
+    # Innovation model settings (plumbing only; runtime integration is gated)
+    innovation_enabled: bool = False
+    innovation_q: float = 0.01
+    innovation_r: float = 1.0
+    innovation_beta: float = 0.05
+    innovation_s_min: float = 1.0e-12
+    innovation_p0_var: float = 1.0e6
+    innovation_v0_var: float = 1.0e4
+    innovation_z_spike: float = 6.0
+
     def __post_init__(self):
         """Set default reference frequencies if not provided."""
         positive_int_params = {
@@ -135,6 +145,22 @@ class SignalConfig:
                 "plausibility_min must be <= plausibility_max "
                 f"(got {self.plausibility_min} > {self.plausibility_max})."
             )
+
+
+        if self.innovation_q < 0:
+            raise ValueError("innovation.q must be >= 0")
+        if self.innovation_r <= 0:
+            raise ValueError("innovation.r must be > 0")
+        if self.innovation_beta <= 0 or self.innovation_beta > 1:
+            raise ValueError("innovation.beta must be > 0 and <= 1")
+        if self.innovation_s_min <= 0:
+            raise ValueError("innovation.s_min must be > 0")
+        if self.innovation_p0_var <= 0:
+            raise ValueError("innovation.p0_var must be > 0")
+        if self.innovation_v0_var <= 0:
+            raise ValueError("innovation.v0_var must be > 0")
+        if self.innovation_z_spike <= 0:
+            raise ValueError("innovation.z_spike must be > 0")
 
         if self.reference_frequencies is None:
             self.reference_frequencies = []
