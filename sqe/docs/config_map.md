@@ -69,6 +69,17 @@ Notes:
 - `variance.spike_k_sigma = 3.0`
 - `variance.debounce_samples = 2`
 
+### `innovation.*`
+- `innovation.enabled = false`
+- `innovation.q = 0.01`
+- `innovation.r = 1.0`
+- `innovation.beta = 0.05`
+- `innovation.s_min = 1.0e-12`
+- `innovation.p0_var = 1.0e6`
+- `innovation.v0_var = 1.0e4`
+- `innovation.z_spike = 6.0`
+- Status: present in config contract; **not used by runtime scoring until the integration step**.
+
 ### `stale.*`
 - `stale.window = 5`
 - `stale.recovery_window = 3`

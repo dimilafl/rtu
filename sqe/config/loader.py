@@ -164,6 +164,48 @@ def get_logging_settings(config: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+
+
+def get_innovation_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Get innovation model settings from config with deterministic validation."""
+    innovation = config.get("innovation", {})
+
+    def require_bool(name: str, value: Any, fallback: bool) -> bool:
+        if value is None:
+            return fallback
+        if isinstance(value, bool):
+            return value
+        raise ValueError(f"{name} must be a boolean")
+
+    def require_positive(name: str, value: Any, fallback: float) -> float:
+        number = float(value if value is not None else fallback)
+        if number <= 0:
+            raise ValueError(f"{name} must be > 0")
+        return number
+
+    def require_non_negative(name: str, value: Any, fallback: float) -> float:
+        number = float(value if value is not None else fallback)
+        if number < 0:
+            raise ValueError(f"{name} must be >= 0")
+        return number
+
+    def require_unit_fraction(name: str, value: Any, fallback: float) -> float:
+        number = float(value if value is not None else fallback)
+        if number <= 0 or number > 1:
+            raise ValueError(f"{name} must be > 0 and <= 1")
+        return number
+
+    return {
+        "enabled": require_bool("innovation.enabled", innovation.get("enabled"), False),
+        "q": require_non_negative("innovation.q", innovation.get("q"), 0.01),
+        "r": require_positive("innovation.r", innovation.get("r"), 1.0),
+        "beta": require_unit_fraction("innovation.beta", innovation.get("beta"), 0.05),
+        "s_min": require_positive("innovation.s_min", innovation.get("s_min"), 1.0e-12),
+        "p0_var": require_positive("innovation.p0_var", innovation.get("p0_var"), 1.0e6),
+        "v0_var": require_positive("innovation.v0_var", innovation.get("v0_var"), 1.0e4),
+        "z_spike": require_positive("innovation.z_spike", innovation.get("z_spike"), 6.0),
+    }
+
 def configure_logging(config: Dict[str, Any]) -> Dict[str, Any]:
     """Configure Python logging based on config settings."""
     settings = get_logging_settings(config)
@@ -214,6 +256,7 @@ def build_signal_config(
     sqi = config.get("sqi", {})
     sqi_thresholds = sqi.get("thresholds", {})
     alerts = config.get("alerts", {})
+    innovation = get_innovation_settings(config)
     plausibility_rule = _resolve_plausibility_rule(plausibility, signal_id)
 
     return SignalConfig(
@@ -248,6 +291,14 @@ def build_signal_config(
         sqi_warning_threshold=alerts.get("sqi_warning_threshold", 50.0),
         drift_alert_threshold=alerts.get("drift_alert_threshold", 5.0),
         spike_alert_threshold=alerts.get("spike_alert_threshold", 0.1),
+        innovation_enabled=innovation["enabled"],
+        innovation_q=innovation["q"],
+        innovation_r=innovation["r"],
+        innovation_beta=innovation["beta"],
+        innovation_s_min=innovation["s_min"],
+        innovation_p0_var=innovation["p0_var"],
+        innovation_v0_var=innovation["v0_var"],
+        innovation_z_spike=innovation["z_spike"],
     )
 
 
