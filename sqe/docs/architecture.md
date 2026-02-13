@@ -169,6 +169,8 @@ Orchestrates all components into unified processing pipeline.
 
 ## Data Flow
 
+See also: [`dataflow_per_scan.md`](./dataflow_per_scan.md) for the exact service/engine/incident per-scan call order and determinism notes.
+
 ### Per-Scan Processing
 
 ```
