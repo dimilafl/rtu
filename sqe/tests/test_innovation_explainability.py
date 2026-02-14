@@ -96,6 +96,10 @@ def test_incident_details_include_innovation_spike_only_when_enabled() -> None:
         innovation_processed.innovation_z_spike
     )
     assert details["innovation_spike"]["is_spike"] is innovation_processed.is_spike
+    assert "innovation_drift" in details
+    assert details["innovation_drift"]["drift_ema"] == pytest.approx(
+        innovation_processed.innovation_drift_ema
+    )
 
     legacy_processor = _legacy_processor()
     for ts in range(10):

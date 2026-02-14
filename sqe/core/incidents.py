@@ -443,6 +443,11 @@ class IncidentEngine:
                 "spike_frequency": processed.spike_frequency,
                 "is_spike": processed.is_spike,
             }
+        if processed.innovation_drift_ema is not None:
+            details["innovation_drift"] = {
+                "drift_delta": processed.innovation_drift_delta,
+                "drift_ema": processed.innovation_drift_ema,
+            }
         return details
 
     def _build_message(

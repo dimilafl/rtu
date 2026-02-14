@@ -273,6 +273,8 @@ class ProcessedSignal:
     innovation_v_hat: Optional[float] = None
     innovation_eta: Optional[float] = None
     innovation_z_spike: Optional[float] = None
+    innovation_drift_delta: Optional[float] = None
+    innovation_drift_ema: Optional[float] = None
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
@@ -391,6 +393,7 @@ class SignalProcessor:
         self.innovation_model: Optional[InnovationModel] = None
         self._innovation_last_t: Optional[float] = None
         self._innovation_spike_ema: float = 0.0
+        self._innovation_drift_ema: float = 0.0
         if self.config.innovation_enabled:
             self.innovation_model = InnovationModel(
                 q=self.config.innovation_q,
@@ -490,6 +493,18 @@ class SignalProcessor:
                     (1.0 - beta) * self._innovation_spike_ema
                     + beta * float(is_spike)
                 )
+
+                if not is_spike and dt > 0.0 and innovation_v_hat is not None:
+                    innovation_drift_delta = abs(float(innovation_v_hat)) * dt
+                    self._innovation_drift_ema = (
+                        (1.0 - beta) * self._innovation_drift_ema
+                        + beta * innovation_drift_delta
+                    )
+                else:
+                    innovation_drift_delta = None
+            else:
+                innovation_drift_delta = None
+
             spike_result = {
                 "is_spike": bool(is_spike),
                 "spike_frequency": self._innovation_spike_ema,
@@ -501,6 +516,8 @@ class SignalProcessor:
                 "innovation_v_hat": innovation_v_hat,
                 "innovation_eta": innovation_eta,
                 "innovation_z_spike": self.config.innovation_z_spike,
+                "innovation_drift_delta": innovation_drift_delta,
+                "innovation_drift_ema": self._innovation_drift_ema,
             }
         else:
             # Spike detection BEFORE variance update (spike needs pre-update baseline stats)
@@ -516,6 +533,8 @@ class SignalProcessor:
                 "innovation_v_hat": None,
                 "innovation_eta": None,
                 "innovation_z_spike": None,
+                "innovation_drift_delta": None,
+                "innovation_drift_ema": None,
             }
         # Variance update (shared variance_calc is updated exactly once per sample)
         variance_result = self.variance_calc.update(x)
@@ -591,7 +610,11 @@ class SignalProcessor:
         plausibility_score = 0.0 if plausibility_result.is_violation else 100.0
         sqi_result = self.sqi_calc.calculate(
             noise_level=noise_level,
-            drift_rate=abs(drift_event.drift_rate),
+            drift_rate=(
+                self._innovation_drift_ema
+                if self.innovation_model is not None
+                else abs(drift_event.drift_rate)
+            ),
             spike_frequency=spike_result["spike_frequency"],
             oscillation_energy=freq_result["total_oscillation_energy"],
             missing_ratio=missing_ratio,
@@ -607,7 +630,11 @@ class SignalProcessor:
         elif sqi_result["sqi"] <= self.config.sqi_warning_threshold:
             alert_level = "warning"
 
-        drift_alert = abs(drift_event.drift_rate) >= self.config.drift_alert_threshold
+        drift_alert = (
+            self._innovation_drift_ema >= self.config.drift_alert_threshold
+            if self.innovation_model is not None
+            else abs(drift_event.drift_rate) >= self.config.drift_alert_threshold
+        )
         spike_alert = spike_result["spike_frequency"] >= self.config.spike_alert_threshold
 
         # Build processed signal output
@@ -633,6 +660,8 @@ class SignalProcessor:
             innovation_v_hat=innovation_result["innovation_v_hat"],
             innovation_eta=innovation_result["innovation_eta"],
             innovation_z_spike=innovation_result["innovation_z_spike"],
+            innovation_drift_delta=innovation_result["innovation_drift_delta"],
+            innovation_drift_ema=innovation_result["innovation_drift_ema"],
             oscillation_energy=freq_result["total_oscillation_energy"],
             dominant_frequency=freq_result["dominant_frequency"],
             sqi=sqi_result["sqi"],
@@ -667,6 +696,7 @@ class SignalProcessor:
         self.spike_detector.reset()
         self._innovation_last_t = None
         self._innovation_spike_ema = 0.0
+        self._innovation_drift_ema = 0.0
         if self.innovation_model is not None:
             self.innovation_model.reset()
         self.osc_detector.reset()
