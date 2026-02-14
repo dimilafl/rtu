@@ -104,6 +104,7 @@ sequenceDiagram
    - if `innovation.enabled`: update `InnovationModel` first and score spikes via `|z| >= innovation.z_spike`, with EWMA spike frequency
    - robust residual-energy EWMA uses winsorized input `u = min(z^2, z_spike^2)` to keep `eta` bounded under one-off spikes
    - innovation-mode noise metric for SQI is `noise_excess = max(0, sqrt(eta) - 1)` and is scaled by `innovation.noise_threshold`
+   - innovation-mode drift metric for SQI is EWMA of `abs(v_hat) * dt`, and is held (no update/no decay) on missing samples, timestamp regressions (`dt <= 0`), and spike samples
    - else: `SpikeDetector.update` (pre-update baseline stats)
    - `VarianceCalculator.update` runs once per sample
 8. Oscillation update (conditional):
