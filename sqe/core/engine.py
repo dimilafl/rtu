@@ -21,6 +21,7 @@ from sqe.core.stale import StaleDetector, StaleResult
 from sqe.core.step_change import StepChangeDetector, StepChangeResult
 from sqe.core.plausibility import PlausibilityChecker, PlausibilityResult
 from sqe.core.signal_buffer import SignalBuffer
+from sqe.core.innovation import InnovationModel
 
 
 @dataclass
@@ -372,6 +373,35 @@ class SignalProcessor:
                 recovery_scans=config.plausibility_recovery_scans,
             )
 
+        self.innovation_model: Optional[InnovationModel] = None
+        self._innovation_last_t: Optional[float] = None
+        self._innovation_spike_ema: float = 0.0
+        if self.config.innovation_enabled:
+            self.innovation_model = InnovationModel(
+                q=self.config.innovation_q,
+                r=self.config.innovation_r,
+                beta=self.config.innovation_beta,
+                s_min=self.config.innovation_s_min,
+                p0_var=self.config.innovation_p0_var,
+                v0_var=self.config.innovation_v0_var,
+            )
+
+    def _innovation_dt(self, effective_timestamp: Optional[float]) -> float:
+        """Compute deterministic monotone dt for innovation updates."""
+        if effective_timestamp is None:
+            return self.config.sample_interval
+
+        if self._innovation_last_t is None:
+            self._innovation_last_t = effective_timestamp
+            return self.config.sample_interval
+
+        if effective_timestamp <= self._innovation_last_t:
+            return 0.0
+
+        dt = effective_timestamp - self._innovation_last_t
+        self._innovation_last_t = effective_timestamp
+        return dt
+
     def update(
         self,
         x: Optional[float],
@@ -406,16 +436,20 @@ class SignalProcessor:
         self.quality_penalties.append(penalty)
         self.missing_buffer.push(x)
 
+        effective_timestamp = (
+            source_timestamp if source_timestamp is not None else timestamp
+        )
+
         # Handle missing sample
         if x is None:
             self.missing_count += 1
+            if self.innovation_model is not None:
+                dt = self._innovation_dt(effective_timestamp)
+                self.innovation_model.update(None, dt)
             return None
 
         if timestamp is None:
             raise ValueError("timestamp is required for non-missing samples")
-        effective_timestamp = (
-            source_timestamp if source_timestamp is not None else timestamp
-        )
 
         # Apply filters
         filtered_ewma = self.ewma_filter.update(x)
@@ -425,12 +459,30 @@ class SignalProcessor:
         # Drift detection
         drift_event = self.drift_detector.update(x)
 
-        # Spike detection BEFORE variance update (spike needs pre-update baseline stats)
-        spike_result = self.spike_detector.update(
-            x,
-            signal_id=self.config.signal_id,
-            baseline_stats_cache=baseline_stats_cache,
-        )
+        if self.innovation_model is not None:
+            dt = self._innovation_dt(effective_timestamp)
+            _, _, z_score, _, _ = self.innovation_model.update(x, dt)
+            is_spike = (
+                z_score is not None
+                and abs(z_score) >= self.config.innovation_z_spike
+            )
+            if z_score is not None:
+                beta = self.config.innovation_beta
+                self._innovation_spike_ema = (
+                    (1.0 - beta) * self._innovation_spike_ema
+                    + beta * float(is_spike)
+                )
+            spike_result = {
+                "is_spike": bool(is_spike),
+                "spike_frequency": self._innovation_spike_ema,
+            }
+        else:
+            # Spike detection BEFORE variance update (spike needs pre-update baseline stats)
+            spike_result = self.spike_detector.update(
+                x,
+                signal_id=self.config.signal_id,
+                baseline_stats_cache=baseline_stats_cache,
+            )
         # Variance update (shared variance_calc is updated exactly once per sample)
         variance_result = self.variance_calc.update(x)
 
@@ -561,6 +613,10 @@ class SignalProcessor:
         self.drift_detector.reset()
         self.variance_calc.reset()
         self.spike_detector.reset()
+        self._innovation_last_t = None
+        self._innovation_spike_ema = 0.0
+        if self.innovation_model is not None:
+            self.innovation_model.reset()
         self.osc_detector.reset()
         self.sqi_calc.reset()
         if self.stale_detector:
