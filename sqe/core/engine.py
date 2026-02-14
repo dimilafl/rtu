@@ -9,6 +9,7 @@ from dataclasses import dataclass, asdict, field
 from typing import Callable, Deque, Dict, Iterable, List, Optional, Set
 from collections import deque
 import logging
+import math
 import time
 
 from sqe.core.sample import Sample, SampleQuality
@@ -89,6 +90,7 @@ class SignalConfig:
     innovation_p0_var: float = 1.0e6
     innovation_v0_var: float = 1.0e4
     innovation_z_spike: float = 6.0
+    innovation_noise_threshold: float = 1.0
 
     def __post_init__(self):
         """Set default reference frequencies if not provided."""
@@ -162,6 +164,8 @@ class SignalConfig:
             raise ValueError("innovation.v0_var must be > 0")
         if self.innovation_z_spike <= 0:
             raise ValueError("innovation.z_spike must be > 0")
+        if self.innovation_noise_threshold <= 0:
+            raise ValueError("innovation.noise_threshold must be > 0")
 
         if self.reference_frequencies is None:
             self.reference_frequencies = []
@@ -336,9 +340,14 @@ class SignalProcessor:
         sqi_weights = None
         if self.config.sqi_weights:
             sqi_weights = SQIWeights(**self.config.sqi_weights)
+        sqi_noise_threshold = (
+            self.config.innovation_noise_threshold
+            if self.config.innovation_enabled
+            else self.config.sqi_noise_threshold
+        )
         self.sqi_calc = SignalQualityIndex(
             weights=sqi_weights,
-            noise_threshold=self.config.sqi_noise_threshold,
+            noise_threshold=sqi_noise_threshold,
             drift_threshold=self.config.sqi_drift_threshold,
             spike_threshold=self.config.sqi_spike_threshold,
             oscillation_threshold=self.config.sqi_oscillation_threshold
@@ -390,6 +399,7 @@ class SignalProcessor:
                 s_min=self.config.innovation_s_min,
                 p0_var=self.config.innovation_p0_var,
                 v0_var=self.config.innovation_v0_var,
+                eta_z_clip=self.config.innovation_z_spike,
             )
 
     def _innovation_dt(self, effective_timestamp: Optional[float]) -> float:
@@ -562,13 +572,25 @@ class SignalProcessor:
                 rate_of_change=None,
             )
 
+        innovation_noise_excess = 0.0
+        if innovation_result["innovation_eta"] is not None:
+            innovation_noise_excess = max(
+                0.0,
+                math.sqrt(max(innovation_result["innovation_eta"], 0.0)) - 1.0,
+            )
+        noise_level = (
+            innovation_noise_excess
+            if self.innovation_model is not None
+            else variance_result["noise_level"]
+        )
+
         # Calculate SQI
         missing_ratio = self.get_effective_missing_ratio()
         stale_score = 0.0 if stale_result.is_stale else 100.0
         step_score = 0.0 if step_result.is_step else 100.0
         plausibility_score = 0.0 if plausibility_result.is_violation else 100.0
         sqi_result = self.sqi_calc.calculate(
-            noise_level=variance_result["noise_level"],
+            noise_level=noise_level,
             drift_rate=abs(drift_event.drift_rate),
             spike_frequency=spike_result["spike_frequency"],
             oscillation_energy=freq_result["total_oscillation_energy"],
@@ -602,7 +624,7 @@ class SignalProcessor:
             monotonic_samples=drift_event.monotonic_samples,
             variance=variance_result["variance"],
             std_dev=variance_result["std_dev"],
-            noise_level=variance_result["noise_level"],
+            noise_level=noise_level,
             is_spike=spike_result["is_spike"],
             spike_frequency=spike_result["spike_frequency"],
             innovation_residual=innovation_result["innovation_residual"],

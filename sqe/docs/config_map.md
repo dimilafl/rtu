@@ -78,7 +78,8 @@ Notes:
 - `innovation.p0_var = 1.0e6`
 - `innovation.v0_var = 1.0e4`
 - `innovation.z_spike = 6.0`
-- Status: active runtime path when enabled; innovation residuals (`|z| >= innovation.z_spike`) drive spike events and EWMA spike frequency used by SQI and spike alerts.
+- `innovation.noise_threshold = 1.0`
+- Status: active runtime path when enabled; innovation residuals (`|z| >= innovation.z_spike`) drive spike events and EWMA spike frequency used by SQI and spike alerts. Innovation noise for SQI uses `noise_excess = max(0, sqrt(eta) - 1)` with robust `eta` updates based on `min(z^2, z_spike^2)`, scaled by `innovation.noise_threshold`.
 
 ### `stale.*`
 - `stale.window = 5`

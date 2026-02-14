@@ -23,6 +23,7 @@ def test_innovation_overrides_flow_into_signal_config(tmp_path):
               p0_var: 1234.0
               v0_var: 567.0
               z_spike: 9.5
+              noise_threshold: 1.7
             """
         ).strip()
         + "\n",
@@ -40,6 +41,7 @@ def test_innovation_overrides_flow_into_signal_config(tmp_path):
     assert signal_config.innovation_p0_var == pytest.approx(1234.0)
     assert signal_config.innovation_v0_var == pytest.approx(567.0)
     assert signal_config.innovation_z_spike == pytest.approx(9.5)
+    assert signal_config.innovation_noise_threshold == pytest.approx(1.7)
 
 
 @pytest.mark.parametrize(
@@ -53,6 +55,7 @@ def test_innovation_overrides_flow_into_signal_config(tmp_path):
         ("p0_var: 0", "innovation.p0_var must be > 0"),
         ("v0_var: 0", "innovation.v0_var must be > 0"),
         ("z_spike: 0", "innovation.z_spike must be > 0"),
+        ("noise_threshold: 0", "innovation.noise_threshold must be > 0"),
     ],
 )
 def test_innovation_invalid_values_raise_deterministically(

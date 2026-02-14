@@ -204,6 +204,9 @@ def get_innovation_settings(config: Dict[str, Any]) -> Dict[str, Any]:
         "p0_var": require_positive("innovation.p0_var", innovation.get("p0_var"), 1.0e6),
         "v0_var": require_positive("innovation.v0_var", innovation.get("v0_var"), 1.0e4),
         "z_spike": require_positive("innovation.z_spike", innovation.get("z_spike"), 6.0),
+        "noise_threshold": require_positive(
+            "innovation.noise_threshold", innovation.get("noise_threshold"), 1.0
+        ),
     }
 
 def configure_logging(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -245,6 +248,7 @@ def build_signal_config(
         alerts.sqi_warning_threshold -> SignalConfig.sqi_warning_threshold
         alerts.drift_alert_threshold -> SignalConfig.drift_alert_threshold
         alerts.spike_alert_threshold -> SignalConfig.spike_alert_threshold
+        innovation.noise_threshold -> SignalConfig.innovation_noise_threshold
     """
     filters = config.get("filters", {})
     drift = config.get("drift", {})
@@ -299,6 +303,7 @@ def build_signal_config(
         innovation_p0_var=innovation["p0_var"],
         innovation_v0_var=innovation["v0_var"],
         innovation_z_spike=innovation["z_spike"],
+        innovation_noise_threshold=innovation["noise_threshold"],
     )
 
 

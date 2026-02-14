@@ -33,6 +33,7 @@ innovation:
   p0_var: 1.0e6
   v0_var: 1.0e4
   z_spike: 6.0
+  noise_threshold: 1.0
 
 # Stale detection settings
 stale:

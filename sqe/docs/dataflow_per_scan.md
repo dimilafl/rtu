@@ -102,6 +102,8 @@ sequenceDiagram
    - `DriftDetector.update`
 7. Innovation update and spike scoring:
    - if `innovation.enabled`: update `InnovationModel` first and score spikes via `|z| >= innovation.z_spike`, with EWMA spike frequency
+   - robust residual-energy EWMA uses winsorized input `u = min(z^2, z_spike^2)` to keep `eta` bounded under one-off spikes
+   - innovation-mode noise metric for SQI is `noise_excess = max(0, sqrt(eta) - 1)` and is scaled by `innovation.noise_threshold`
    - else: `SpikeDetector.update` (pre-update baseline stats)
    - `VarianceCalculator.update` runs once per sample
 8. Oscillation update (conditional):
