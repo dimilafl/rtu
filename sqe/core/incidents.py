@@ -422,7 +422,7 @@ class IncidentEngine:
                 "missing_ratio": raw_missing_ratio,
                 "effective_missing_ratio": missing_ratio,
             }
-        return {
+        details = {
             "components": dict(processed.sqi_components),
             "missing_ratio": raw_missing_ratio,
             "effective_missing_ratio": missing_ratio,
@@ -431,6 +431,19 @@ class IncidentEngine:
             "spike_alert": processed.spike_alert,
             "quality_class": processed.quality_class,
         }
+        if processed.innovation_z is not None:
+            details["innovation_spike"] = {
+                "z": processed.innovation_z,
+                "abs_z": abs(processed.innovation_z),
+                "z_spike": processed.innovation_z_spike,
+                "residual": processed.innovation_residual,
+                "S": processed.innovation_S,
+                "v_hat": processed.innovation_v_hat,
+                "eta": processed.innovation_eta,
+                "spike_frequency": processed.spike_frequency,
+                "is_spike": processed.is_spike,
+            }
+        return details
 
     def _build_message(
         self,
