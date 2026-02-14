@@ -30,6 +30,7 @@ class InnovationModel:
         s_min: float,
         p0_var: float,
         v0_var: float,
+        eta_z_clip: Optional[float] = None,
     ) -> None:
         if q < 0.0:
             raise ValueError("q must be >= 0")
@@ -41,6 +42,8 @@ class InnovationModel:
             raise ValueError("s_min must be > 0")
         if p0_var < 0.0 or v0_var < 0.0:
             raise ValueError("p0_var and v0_var must be >= 0")
+        if eta_z_clip is not None and eta_z_clip <= 0.0:
+            raise ValueError("eta_z_clip must be > 0 when provided")
 
         self.q = float(q)
         self.r = float(r)
@@ -48,6 +51,7 @@ class InnovationModel:
         self.s_min = float(s_min)
         self.p0_var = float(p0_var)
         self.v0_var = float(v0_var)
+        self.eta_z_clip = float(eta_z_clip) if eta_z_clip is not None else None
 
         self.reset()
 
@@ -88,7 +92,10 @@ class InnovationModel:
             s_val = s_raw if s_raw > self.s_min else self.s_min
             e_val = 0.0
             z_val = 0.0
-            self.eta = (1.0 - self.beta) * self.eta + self.beta * (z_val * z_val)
+            z2_val = z_val * z_val
+            if self.eta_z_clip is not None:
+                z2_val = min(z2_val, self.eta_z_clip * self.eta_z_clip)
+            self.eta = (1.0 - self.beta) * self.eta + self.beta * z2_val
             return e_val, s_val, z_val, self.v, self.eta
 
         # Predict state
@@ -143,6 +150,9 @@ class InnovationModel:
         self.P10 = P10_pred - k1 * P00_pred
         self.P11 = P11_pred - k1 * P01_pred
 
-        self.eta = (1.0 - self.beta) * self.eta + self.beta * (z * z)
+        z2 = z * z
+        if self.eta_z_clip is not None:
+            z2 = min(z2, self.eta_z_clip * self.eta_z_clip)
+        self.eta = (1.0 - self.beta) * self.eta + self.beta * z2
 
         return e, S, z, self.v, self.eta
