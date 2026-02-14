@@ -100,9 +100,10 @@ sequenceDiagram
    - `HighPassFilter.update`
 6. Drift update:
    - `DriftDetector.update`
-7. Spike and variance order:
-   - `SpikeDetector.update` first (pre-update baseline stats)
-   - `VarianceCalculator.update` second
+7. Innovation update and spike scoring:
+   - if `innovation.enabled`: update `InnovationModel` first and score spikes via `|z| >= innovation.z_spike`, with EWMA spike frequency
+   - else: `SpikeDetector.update` (pre-update baseline stats)
+   - `VarianceCalculator.update` runs once per sample
 8. Oscillation update (conditional):
    - if enabled: `OscillationDetector.update(load_shed, cadence, skip_fft)`
    - else use zeroed/default frequency payload

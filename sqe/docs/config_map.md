@@ -78,7 +78,7 @@ Notes:
 - `innovation.p0_var = 1.0e6`
 - `innovation.v0_var = 1.0e4`
 - `innovation.z_spike = 6.0`
-- Status: present in config contract; **not used by runtime scoring until the integration step**.
+- Status: active runtime path when enabled; innovation residuals (`|z| >= innovation.z_spike`) drive spike events and EWMA spike frequency used by SQI and spike alerts.
 
 ### `stale.*`
 - `stale.window = 5`
