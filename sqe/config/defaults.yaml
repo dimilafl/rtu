@@ -4,6 +4,9 @@
 engine:
   scan_interval: 0.1  # seconds (100ms)
   auto_register: true  # Automatically register unknown signals
+  treat_missing_signals_as_none: true
+  unknown_signal_policy: error
+  max_signals_policy: error
 
 # Filter settings
 filters:
@@ -160,12 +163,6 @@ performance:
   load_shed_oscillation_cadence: 3
   load_shed_skip_fft: true
 
-engine:
-  scan_interval: 0.1
-  auto_register: true
-  treat_missing_signals_as_none: true
-  unknown_signal_policy: error
-  max_signals_policy: error
 
 # Alert settings
 alerts:
