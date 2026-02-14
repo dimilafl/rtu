@@ -18,6 +18,7 @@ from sqe.core.event_filter import EventFilterPolicy
 from sqe.core.incidents import IncidentCause, IncidentPolicy
 from sqe.core.group_incidents import GroupIncidentPolicy
 from sqe.core.grouping import GroupDefinition, GroupingConfig
+from sqe.config.yaml_strict import load_yaml_no_dupes
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "defaults.yaml"
 
@@ -30,10 +31,11 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
     if not path.exists():
         raise ConfigError(f"Config file not found: {path}")
     try:
-        with path.open("r", encoding="utf-8") as handle:
-            data = yaml.safe_load(handle) or {}
+        data = load_yaml_no_dupes(path)
     except yaml.YAMLError as exc:
         raise ConfigError(f"Invalid YAML in {path}: {exc}") from exc
+    except TypeError as exc:
+        raise ConfigError(f"{exc}: {path}") from exc
     if not isinstance(data, dict):
         raise ConfigError(f"Top-level YAML must be a mapping: {path}")
     return data
