@@ -263,6 +263,12 @@ class ProcessedSignal:
     alert_level: str
     drift_alert: bool
     spike_alert: bool
+    innovation_residual: Optional[float] = None
+    innovation_S: Optional[float] = None
+    innovation_z: Optional[float] = None
+    innovation_v_hat: Optional[float] = None
+    innovation_eta: Optional[float] = None
+    innovation_z_spike: Optional[float] = None
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
@@ -461,7 +467,9 @@ class SignalProcessor:
 
         if self.innovation_model is not None:
             dt = self._innovation_dt(effective_timestamp)
-            _, _, z_score, _, _ = self.innovation_model.update(x, dt)
+            residual, innovation_S, z_score, innovation_v_hat, innovation_eta = (
+                self.innovation_model.update(x, dt)
+            )
             is_spike = (
                 z_score is not None
                 and abs(z_score) >= self.config.innovation_z_spike
@@ -476,6 +484,14 @@ class SignalProcessor:
                 "is_spike": bool(is_spike),
                 "spike_frequency": self._innovation_spike_ema,
             }
+            innovation_result = {
+                "innovation_residual": residual,
+                "innovation_S": innovation_S,
+                "innovation_z": z_score,
+                "innovation_v_hat": innovation_v_hat,
+                "innovation_eta": innovation_eta,
+                "innovation_z_spike": self.config.innovation_z_spike,
+            }
         else:
             # Spike detection BEFORE variance update (spike needs pre-update baseline stats)
             spike_result = self.spike_detector.update(
@@ -483,6 +499,14 @@ class SignalProcessor:
                 signal_id=self.config.signal_id,
                 baseline_stats_cache=baseline_stats_cache,
             )
+            innovation_result = {
+                "innovation_residual": None,
+                "innovation_S": None,
+                "innovation_z": None,
+                "innovation_v_hat": None,
+                "innovation_eta": None,
+                "innovation_z_spike": None,
+            }
         # Variance update (shared variance_calc is updated exactly once per sample)
         variance_result = self.variance_calc.update(x)
 
@@ -581,6 +605,12 @@ class SignalProcessor:
             noise_level=variance_result["noise_level"],
             is_spike=spike_result["is_spike"],
             spike_frequency=spike_result["spike_frequency"],
+            innovation_residual=innovation_result["innovation_residual"],
+            innovation_S=innovation_result["innovation_S"],
+            innovation_z=innovation_result["innovation_z"],
+            innovation_v_hat=innovation_result["innovation_v_hat"],
+            innovation_eta=innovation_result["innovation_eta"],
+            innovation_z_spike=innovation_result["innovation_z_spike"],
             oscillation_energy=freq_result["total_oscillation_energy"],
             dominant_frequency=freq_result["dominant_frequency"],
             sqi=sqi_result["sqi"],
