@@ -1,7 +1,5 @@
 """Tests for drift detection."""
 
-import pytest
-import numpy as np
 
 from sqe.core.drift import DriftDetector, DriftType, DriftAnalyzer
 

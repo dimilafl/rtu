@@ -142,7 +142,6 @@ class IncidentEngine:
         )
 
         for signal_id, evaluation in evaluations.items():
-            processed = processed_signals.get(signal_id)
             state = self._state_by_signal.setdefault(signal_id, _SignalIncidentState())
             state.last_seen_scan_index = scan_index
 

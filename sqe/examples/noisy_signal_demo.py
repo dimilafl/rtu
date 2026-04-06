@@ -14,9 +14,10 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
-from sqe.core.filters import EWMAFilter, MovingAverageFilter
-from sqe.core.variance import VarianceCalculator, SpikeDetector
-from sqe.core.sqi import SignalQualityIndex
+
+from sqe.core.filters import EWMAFilter, MovingAverageFilter  # noqa: E402
+from sqe.core.variance import VarianceCalculator, SpikeDetector  # noqa: E402
+from sqe.core.sqi import SignalQualityIndex  # noqa: E402
 
 
 def generate_signal_with_noise(samples: int, noise_std: float) -> list[float]:

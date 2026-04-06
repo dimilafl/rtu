@@ -214,7 +214,6 @@ def analyze_command(args):
     # Initialize engine
     incident_policy = get_incident_policy(config)
     required_causes = required_causes_from_policy(incident_policy)
-    run_id = uuid.uuid4().hex
     engine = SignalQualityEngine(
         scan_interval=scan_interval,
         auto_register=auto_register,
@@ -260,7 +259,7 @@ def analyze_command(args):
         )
 
         sqi_stats = stats["sqi_stats"]
-        print(f"  Signal Quality:")
+        print("  Signal Quality:")
         print(f"    Mean SQI: {sqi_stats['mean_sqi']:.1f}")
         print(f"    Min SQI:  {sqi_stats['min_sqi']:.1f}")
         print(f"    Max SQI:  {sqi_stats['max_sqi']:.1f}")
@@ -269,8 +268,6 @@ def analyze_command(args):
     # Plot if requested
     if args.plot:
         try:
-            import matplotlib.pyplot as plt
-
             print("Generating plots...")
             plot_results(engine, signal_ids, rows)
             print("Plot displayed.")
@@ -348,7 +345,7 @@ def simulate_command(args):
     sqi_stats = stats["sqi_stats"]
 
     print(f"Samples Processed: {stats['sample_count']}")
-    print(f"Signal Quality:")
+    print("Signal Quality:")
     print(f"  Mean SQI: {sqi_stats['mean_sqi']:.1f}")
     print(f"  Min SQI:  {sqi_stats['min_sqi']:.1f}")
     print(f"  Max SQI:  {sqi_stats['max_sqi']:.1f}")
@@ -356,7 +353,7 @@ def simulate_command(args):
 
     if results:
         final = results[-1]
-        print(f"Final State:")
+        print("Final State:")
         print(f"  Raw Value: {final.raw:.2f}")
         print(f"  Filtered (EWMA): {final.filtered_ewma:.2f}")
         print(f"  Noise Level: {final.noise_level:.3f}")
@@ -366,8 +363,6 @@ def simulate_command(args):
     # Plot if requested
     if args.plot:
         try:
-            import matplotlib.pyplot as plt
-
             print("Generating plots...")
             plot_simulation(signal, results)
             print("Plot displayed.")
@@ -740,7 +735,7 @@ def main():
     )
 
     # Version command
-    version_parser = subparsers.add_parser("version", help="Show version")
+    subparsers.add_parser("version", help="Show version")
 
     # Incidents command
     incidents_parser = subparsers.add_parser(

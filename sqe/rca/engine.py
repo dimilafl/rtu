@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from sqe.comms.budget import UtilizationStatus
 from sqe.comms.health import CommsHealthStatus, summarize_comms_health
-from sqe.topology.model import NodeType, TopologySnapshot
+from sqe.topology.model import TopologySnapshot
 from sqe.topology.index import TopologyIndex
 from sqe.rca.schema import (
     CommsBudgetSummary,
@@ -24,7 +24,6 @@ from sqe.rca.schema import (
 from sqe.rca.evidence import (
     build_leaf_observations,
     aggregate_node_evidence,
-    select_representative_signals,
 )
 from sqe.rca.state import RCAState
 from sqe.rca.scoring import (

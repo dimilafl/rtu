@@ -14,7 +14,7 @@ import time
 
 from sqe.core.sample import Sample, SampleQuality
 from sqe.core.filters import EWMAFilter, HighPassFilter, MovingAverageFilter
-from sqe.core.drift import DriftDetector, DriftEvent
+from sqe.core.drift import DriftDetector
 from sqe.core.variance import VarianceCalculator, SpikeDetector
 from sqe.core.freq_detect import OscillationDetector
 from sqe.core.sqi import SignalQualityIndex, SQIWeights

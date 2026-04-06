@@ -7,11 +7,9 @@ import json
 import pytest
 
 from sqe.topology.loader import load_topology_dict
-from sqe.topology.index import TopologyIndex
 from sqe.comms.budget import UtilizationStatus
 from sqe.comms.health import CommsHealthClass, CommsHealthStatus
 from sqe.rca.schema import (
-    LeafObservation,
     TroubleshootReport,
     OverallState,
     SCHEMA_VERSION,
@@ -462,7 +460,7 @@ class TestRCAEngine:
 
         # Multiple scans
         for scan in range(1, 5):
-            report = engine.analyze(
+            engine.analyze(
                 processed,
                 scan_index=scan,
                 scan_timestamp=float(scan),

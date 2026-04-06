@@ -15,7 +15,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from sqe.core.engine import SignalQualityEngine, SignalConfig
+from sqe.core.engine import SignalQualityEngine, SignalConfig  # noqa: E402
 
 
 def generate_clean_signal(
@@ -144,7 +144,7 @@ def main():
         print(f"  Missing Ratio: {stats['missing_ratio']:.2%}")
 
         sqi_stats = stats["sqi_stats"]
-        print(f"  SQI Statistics:")
+        print("  SQI Statistics:")
         print(f"    Mean: {sqi_stats['mean_sqi']:.1f}")
         print(f"    Min: {sqi_stats['min_sqi']:.1f}")
         print(f"    Max: {sqi_stats['max_sqi']:.1f}")

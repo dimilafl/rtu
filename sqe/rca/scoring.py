@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import exp
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqe.comms.budget import UtilizationStatus
 from sqe.comms.health import CommsHealthStatus

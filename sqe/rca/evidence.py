@@ -17,7 +17,6 @@ from sqe.rca.schema import (
     NodeEvidence,
     normalize_cause,
     normalize_quality_class,
-    KNOWN_CAUSES,
 )
 from sqe.rca.state import RCAState
 

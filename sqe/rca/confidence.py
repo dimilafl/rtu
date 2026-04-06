@@ -9,7 +9,7 @@ Deterministic confidence scoring based on:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from sqe.rca.schema import RootCauseCandidate
 from sqe.rca.state import RCAState

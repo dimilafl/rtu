@@ -18,7 +18,6 @@ from sqe.rca.scoring import (
     get_primary_and_secondary,
 )
 from sqe.rca.confidence import (
-    ConfidenceConfig,
     compute_confidence,
     compute_all_confidences,
     get_default_confidence_config,
@@ -274,7 +273,7 @@ class TestScoringCandidates:
             scan_index=1, scan_timestamp=1.0,
         )
 
-        candidates = score_candidates(
+        score_candidates(
             snapshot, index, evidence, observations, state, config,
         )
 
