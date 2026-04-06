@@ -1,25 +1,21 @@
 """Tests for scenario harness and RCA integration."""
 
-import json
 import tempfile
 from pathlib import Path
 
 import pytest
-import yaml
 
 from sqe.rca.scenario import (
     Scenario,
     ScenarioRunner,
     SignalFeedEntry,
     ScenarioExpectation,
-    ValidationResult,
     load_scenario_yaml,
     save_scenario_yaml,
     make_comms_outage_scenario,
     make_rtu_failure_scenario,
 )
 from sqe.rca.schema import OverallState
-from sqe.topology.loader import load_topology_dict
 
 
 def make_test_topology_dict():

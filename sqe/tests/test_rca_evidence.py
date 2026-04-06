@@ -4,10 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from sqe.topology.model import NodeType
 from sqe.topology.loader import load_topology_dict
 from sqe.topology.index import TopologyIndex
-from sqe.rca.schema import LeafObservation, NodeEvidence, SCHEMA_VERSION
+from sqe.rca.schema import LeafObservation
 from sqe.rca.evidence import (
     build_leaf_observations,
     aggregate_node_evidence,

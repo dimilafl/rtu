@@ -11,7 +11,6 @@ from typing import Any, Dict, List, Optional
 
 from sqe.comms.budget import UtilizationStatus
 from sqe.comms.health import CommsHealthSummary
-from sqe.topology.model import NodeType
 
 
 class OverallState(Enum):

@@ -231,17 +231,20 @@ See [Integration Guide](sqe/docs/integration_guide.md) for complete details.
 Run the comprehensive test suite:
 
 ```bash
-# Run all tests
-pytest sqe/tests/
+# Run all tests (project + package tests)
+pytest -q
 
 # Run with coverage
-pytest --cov=sqe sqe/tests/
+pytest --cov=sqe -q
 
 # Run specific test module
 pytest sqe/tests/test_engine.py
 
 # Run with verbose output
-pytest -v sqe/tests/
+pytest -v
+
+# Run lint checks
+ruff check .
 ```
 
 All tests include:

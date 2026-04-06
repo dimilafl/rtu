@@ -6,7 +6,7 @@ root cause analysis. Includes retention policy for memory management.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Optional, Set
 
 

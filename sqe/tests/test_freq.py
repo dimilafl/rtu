@@ -1,6 +1,5 @@
 """Tests for frequency detection."""
 
-import pytest
 import numpy as np
 
 from sqe.core.freq_detect import FrequencyDetector, FFTFrequencyAnalyzer, OscillationDetector

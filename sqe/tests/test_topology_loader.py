@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from sqe.topology.model import Node, NodeType, TopologySnapshot
+from sqe.topology.model import Node, NodeType
 from sqe.topology.loader import (
     TopologyValidationError,
     load_topology_dict,
@@ -370,7 +370,9 @@ class TestTopologyModel:
         # get_leaf_nodes
         leaves = snapshot.get_leaf_nodes()
         assert len(leaves) == 6
-        assert all(snapshot.nodes[l].node_type == NodeType.SIGNAL for l in leaves)
+        assert all(
+            snapshot.nodes[leaf_id].node_type == NodeType.SIGNAL for leaf_id in leaves
+        )
 
 
 def test_loads_example_topology_file():

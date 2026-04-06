@@ -1,9 +1,8 @@
 """Tests for Signal Quality Index."""
 
 import pytest
-import numpy as np
 
-from sqe.core.sqi import SignalQualityIndex, SQIWeights, SQIComponents
+from sqe.core.sqi import SignalQualityIndex, SQIWeights
 
 
 class TestSQIWeights:
@@ -215,7 +214,6 @@ class TestSignalQualityIndex:
 
         # Generate improving trend
         for i in range(15):
-            quality = 50 + i * 3  # Improving from 50 to ~90
             # Convert quality back to approximate inputs
             sqi.calculate(
                 noise_level=0.1 * (1 - i/15),

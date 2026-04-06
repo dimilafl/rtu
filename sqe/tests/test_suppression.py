@@ -1,14 +1,12 @@
 """Tests for topology-aware suppression."""
 
-import pytest
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from sqe.topology.model import TopologySnapshot, Node, NodeType
+from sqe.topology.model import TopologySnapshot
 from sqe.topology.index import TopologyIndex
 from sqe.topology.loader import load_topology_dict
 from sqe.rca.node_incidents import (
-    NodeIncident,
     NodeIncidentConfig,
     NodeIncidentTracker,
 )

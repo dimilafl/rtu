@@ -1,6 +1,5 @@
 """Tests for node incident tracking."""
 
-import pytest
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
