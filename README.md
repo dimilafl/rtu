@@ -131,56 +131,93 @@ directory. See `sqe/docs/comms_health_mvp.md` for fields and interpretation.
 ## Project Structure
 
 ```
-sqe/
-├── __init__.py
-├── config/
-│   └── defaults.yaml          # Default configuration
-├── core/
-│   ├── signal_buffer.py       # Circular buffer
-│   ├── filters.py             # DSP filters (EWMA, MA, HP)
-│   ├── drift.py               # Drift detection
-│   ├── variance.py            # Variance & spike detection
-│   ├── freq_detect.py         # Frequency analysis
-│   ├── sqi.py                 # Signal Quality Index
-│   ├── incidents.py           # Quality incident engine
-│   └── engine.py              # Main engine
-├── integration/
-│   ├── pointcore_adapter.py   # PointCore integration
-│   ├── plcscan_adapter.py     # PLC scan integration
-│   ├── comms_adapter.py       # Comms front-end integration
-│   └── publisher.py           # JSONL publisher and OASyS stub
-├── ops/
-│   └── service.py             # Realtime scan service wrapper
-├── tests/
-│   ├── test_filters.py
-│   ├── test_drift.py
-│   ├── test_variance.py
-│   ├── test_freq.py
-│   ├── test_sqi.py
-│   └── test_engine.py
-├── examples/
-│   ├── demo_pipeline.py       # Complete pipeline demo
-│   └── noisy_signal_demo.py   # Filter comparison demo
-├── cli/
-│   └── sqe_cli.py             # Command-line interface
-└── docs/
-    ├── architecture.md        # System architecture
-    ├── dsp_principles.md      # DSP mathematics
-    ├── integration_guide.md   # Integration instructions
-    ├── incidents.md           # Incident lifecycle and schema
-    └── sqi_definition.md      # SQI formula & interpretation
+rtu/
+├── sqe/                          # Main package
+│   ├── __init__.py               # Exports SignalQualityEngine, SignalQualityIndex
+│   ├── schema.py                 # JSON schemas
+│   ├── config/                   # YAML configuration
+│   │   ├── defaults.yaml         # All configurable parameters (~260 keys)
+│   │   └── loader.py             # Config loading, deep-merge, validation
+│   ├── core/                     # DSP algorithms and processing engine
+│   │   ├── engine.py             # SignalQualityEngine, SignalProcessor, SignalConfig
+│   │   ├── signal_buffer.py      # NumPy circular buffer
+│   │   ├── filters.py            # EWMA, HighPass, MovingAverage, FilterBank
+│   │   ├── drift.py              # DriftDetector, DriftAnalyzer
+│   │   ├── variance.py           # VarianceCalculator, SpikeDetector
+│   │   ├── freq_detect.py        # FrequencyDetector, FFT, OscillationDetector
+│   │   ├── innovation.py         # Kalman-based InnovationModel
+│   │   ├── sqi.py                # SignalQualityIndex (0-100 composite)
+│   │   ├── stale.py              # StaleDetector (flatline + timestamp)
+│   │   ├── step_change.py        # StepChangeDetector
+│   │   ├── plausibility.py       # PlausibilityChecker
+│   │   ├── sample.py             # Sample, SampleQuality
+│   │   ├── incidents.py          # IncidentEngine lifecycle
+│   │   ├── group_incidents.py    # GroupIncidentEngine
+│   │   ├── grouping.py           # Signal to group resolution
+│   │   └── event_filter.py       # Member-event suppression
+│   ├── ops/                      # Operational service layer
+│   │   └── service.py            # RealtimeQualityService
+│   ├── integration/              # External system adapters
+│   │   ├── pointcore_adapter.py
+│   │   ├── plcscan_adapter.py
+│   │   ├── comms_adapter.py
+│   │   └── publisher.py
+│   ├── comms/                    # Comms health monitoring
+│   │   ├── api.py, health.py, budget.py
+│   │   ├── schema.py, topology_index.py
+│   │   └── ...
+│   ├── rca/                      # Root cause analysis engine
+│   │   └── ...
+│   ├── topology/                 # Topology management
+│   │   └── ...
+│   ├── replay/                   # Deterministic replay
+│   │   └── ...
+│   ├── eval/                     # Evaluation harness (precision/recall/F1)
+│   │   └── ...
+│   ├── cli/                      # Command-line interface
+│   │   └── sqe_cli.py            # analyze, simulate, incidents, replay, eval
+│   ├── tools/                    # Utility tools
+│   │   ├── bench.py              # Performance benchmark
+│   │   └── offline_tuning.py     # Parameter tuning pipeline
+│   ├── examples/                 # Demo scripts
+│   ├── vectors/                  # Cross-language portability vectors
+│   ├── tests/                    # Package-level tests (48 files)
+│   └── docs/                     # Documentation (15 files)
+├── tests/                        # Top-level tests (4 files)
+├── pyproject.toml                # Build config
+└── README.md
 ```
 
 ## Documentation
 
 ### Core Concepts
 
-- **[Architecture](sqe/docs/architecture.md)** - System design and component overview
-- **[DSP Principles](sqe/docs/dsp_principles.md)** - Mathematical foundations
-- **[Integration Guide](sqe/docs/integration_guide.md)** - How to integrate with existing systems
-- **[Quality Incidents](sqe/docs/incidents.md)** - Incident lifecycle and policy
-- **[Offline tuning pipeline](sqe/docs/offline_tuning.md)** - Replay-based tuning workflow
-- **[SQI Definition](sqe/docs/sqi_definition.md)** - Signal Quality Index explained
+- **[Architecture](sqe/docs/architecture.md)** - System design, component overview, and performance constraints
+- **[Per-Scan Dataflow](sqe/docs/dataflow_per_scan.md)** - Exact execution sequence, determinism, and bounded compute notes
+- **[DSP Principles](sqe/docs/dsp_principles.md)** - Mathematical foundations of all detection algorithms
+- **[SQI Definition](sqe/docs/sqi_definition.md)** - Signal Quality Index formula, components, classification, and examples
+- **[Configuration Map](sqe/docs/config_map.md)** - Complete ~260-key config inventory, merge semantics, and audit
+
+### Operations
+
+- **[Integration Guide](sqe/docs/integration_guide.md)** - Integrating with PointCore, PLC, Comms simulators
+- **[Quality Incidents](sqe/docs/incidents.md)** - Incident lifecycle (started/updated/resolved), event schema, determinism
+- **[Comms Health MVP](sqe/docs/comms_health_mvp.md)** - Comms health aggregation and classification
+- **[Comms Budget v2](sqe/docs/comms_budget_v2.md)** - Comms capacity budgeting and utilization
+- **[Offline Tuning](sqe/docs/offline_tuning.md)** - Replay-based parameter sweep pipeline
+- **[Performance](sqe/docs/performance.md)** - Benchmark harness usage
+
+### Development
+
+- **[Module Reference](sqe/docs/module_reference.md)** - Per-module API reference with all classes and functions
+- **[Developer Guide](sqe/docs/development.md)** - Setup, workflow, code style, adding new detectors
+- **[Testing Guide](sqe/docs/testing.md)** - Test layout, conventions, fixtures, determinism, performance smoke tests
+- **[Evaluation](sqe/docs/evaluation.md)** - Label format, replay+evaluation workflow, metrics definitions
+
+### Refactoring
+
+- **[Architecture Analysis](sqe/docs/refactor_analysis.md)** - Structural issues, duplicated logic, and refactor strategy
+- **[Refactor PRD](sqe/docs/prd_refactor.md)** - Requirements, success criteria, and 13 implementation tasks
 
 ### Examples
 
