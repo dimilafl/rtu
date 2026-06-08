@@ -58,7 +58,7 @@ The Signal Quality Engine (SQE) is a real-time digital signal processing system 
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/rtu.git
+git clone https://github.com/dimilafl/rtu.git
 cd rtu
 
 # Install
@@ -392,7 +392,7 @@ See [SQI Definition](sqe/docs/sqi_definition.md) for complete formula and exampl
 
 ## License
 
-This project is part of a SCADA simulation stack for industrial control systems.
+This project is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full text.
 
 ## Contact
 
@@ -401,9 +401,9 @@ For questions or support, please open an issue on GitHub.
 ## Acknowledgments
 
 Built for integration with:
-- [PointCore-Simulator](https://github.com/yourusername/PointCore-Simulator)
-- [PLC_Scan_Engine](https://github.com/yourusername/PLC_Scan_Engine)
-- [SCADA-Comms-Front-End-Processor](https://github.com/yourusername/SCADA-Comms-Front-End-Processor)
+- [PointCore-Simulator](https://github.com/dimilafl/PointCore-Simulator)
+- [PLC_Scan_Engine](https://github.com/dimilafl/PLC_Scan_Engine)
+- [SCADA-Comms-Front-End-Processor](https://github.com/dimilafl/SCADA-Comms-Front-End-Processor)
 
 ## Version History
 

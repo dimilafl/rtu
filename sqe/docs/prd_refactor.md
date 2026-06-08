@@ -54,7 +54,7 @@ Engineering team needs the codebase to be modular, statically analyzable (mypy),
 
 - `python -m pytest sqe/tests/ tests/ -q` passes 146 tests with zero delta
 - `python -m mypy sqe/core/ --strict` passes with zero errors on the refactored files
-- `sqe replay --in vectors/scans.jsonl --config vectors/cfg.yaml --out /tmp/replay_test` produces `expected_incidents.jsonl` and `expected_group_incidents.jsonl` byte-for-byte identical to `vectors/`
+- `sqe replay --in vectors/scans.jsonl --config vectors/cfg.yaml --out ./replay_test` produces `expected_incidents.jsonl` and `expected_group_incidents.jsonl` byte-for-byte identical to `vectors/`
 - `engine.py` under 600 lines, `update()` method under 15 lines (delegates to `_process_scans`)
 
 ---
@@ -65,7 +65,7 @@ Dependencies are marked with `→`. Tasks without dependencies can run in parall
 
 ### T1. [SPIKE] Verify current test baseline
 
-Run `pytest sqe/tests/ tests/ -q --tb=short` and record the exact passing count and any skips/xfails. Confirm vector replay determinism: `sqe replay --in sqe/vectors/scans.jsonl --config sqe/vectors/cfg.yaml --groups-config sqe/vectors/groups.yaml --out /tmp/rtu_vectors_test && diff /tmp/rtu_vectors_test/incidents.jsonl sqe/vectors/expected_incidents.jsonl && diff /tmp/rtu_vectors_test/group_incidents.jsonl sqe/vectors/expected_group_incidents.jsonl`. Capture golden hashes.
+Run `pytest sqe/tests/ tests/ -q --tb=short` and record the exact passing count and any skips/xfails. Confirm vector replay determinism: `sqe replay --in sqe/vectors/scans.jsonl --config sqe/vectors/cfg.yaml --groups-config sqe/vectors/groups.yaml --out ./rtu_vectors_test && diff ./rtu_vectors_test/incidents.jsonl sqe/vectors/expected_incidents.jsonl && diff ./rtu_vectors_test/group_incidents.jsonl sqe/vectors/expected_group_incidents.jsonl`. Capture golden hashes.
 
 **Owner:** one person, 15 min.
 
@@ -131,13 +131,13 @@ Change `FilterBank` to use a protocol or base class for the filter parameter. Up
 
 ### T12. [INTEGRATION] Re-run full test + determinism suite
 
-Run `pytest sqe/tests/ tests/ -q --tb=short`. Confirm 146 passing. Run vector replay determinism check from T1. Run `mypy sqe/core/ --strict` and fix any remaining type errors. Run `python -m sqe.cli.sqe_cli replay --in sqe/vectors/scans.jsonl --config sqe/vectors/cfg.yaml --out /tmp/final_test` and diff against golden files.
+Run `pytest sqe/tests/ tests/ -q --tb=short`. Confirm 146 passing. Run vector replay determinism check from T1. Run `mypy sqe/core/ --strict` and fix any remaining type errors. Run `python -m sqe.cli.sqe_cli replay --in sqe/vectors/scans.jsonl --config sqe/vectors/cfg.yaml --out ./final_test` and diff against golden files.
 
 **Depends:** T2-T11 all complete.
 
-### T13. Update `sqe/__init__.py` and `STATUS_REPORT.md`
+### T13. Update `sqe/__init__.py`
 
-Verify `__init__.py` exports still work (import paths may need updating if re-exports are used). Update `STATUS_REPORT.md` with new commit hash and refactoring notes.
+Verify `__init__.py` exports still work (import paths may need updating if re-exports are used).
 
 **Depends:** T12.
 

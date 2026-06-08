@@ -14,9 +14,11 @@ dependencies = [
 ]
 authors = [{name = "Signal Quality Engine contributors"}]
 keywords = ["scada", "dsp", "signal-processing", "telemetry", "rtu", "plc"]
+license = {text = "Apache-2.0"}
 classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
   "Topic :: Software Development :: Libraries :: Python Modules",
   "Topic :: Scientific/Engineering",
   "Programming Language :: Python :: 3",

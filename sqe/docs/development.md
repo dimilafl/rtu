@@ -206,10 +206,10 @@ SQE is deterministic by design. Given the same input scans, configuration, and s
 ### Verifying determinism
 
 ```bash
-sqe replay --in vectors/scans.jsonl --config vectors/cfg.yaml --out /tmp/run_a
-sqe replay --in vectors/scans.jsonl --config vectors/cfg.yaml --out /tmp/run_b
-diff /tmp/run_a/incidents.jsonl /tmp/run_b/incidents.jsonl   # should be empty
-diff /tmp/run_a/group_incidents.jsonl /tmp/run_b/group_incidents.jsonl  # empty
+sqe replay --in vectors/scans.jsonl --config vectors/cfg.yaml --out ./replay_run_a
+sqe replay --in vectors/scans.jsonl --config vectors/cfg.yaml --out ./replay_run_b
+diff ./replay_run_a/incidents.jsonl ./replay_run_b/incidents.jsonl   # should be empty
+diff ./replay_run_a/group_incidents.jsonl ./replay_run_b/group_incidents.jsonl  # empty
 ```
 
 ## Adding a New Detector

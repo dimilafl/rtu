@@ -63,7 +63,7 @@ python -m sqe.cli.sqe_cli offline-tuning \
   --replay-input /path/to/replay.jsonl \
   --labels /path/to/labels.yaml \
   --sweep-config sqe/config/tuning_defaults.yaml \
-  --out-dir /tmp/sqe-tuning
+  --out-dir ./sqe-tuning
 ```
 
 Optional flags:

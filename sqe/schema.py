@@ -7,7 +7,7 @@ from typing import Any, Dict
 SCHEMA_VERSION = "1.1.0"
 
 PROCESSED_SIGNAL_SCHEMA: Dict[str, Any] = {
-    "$id": "https://schemas.sqe.local/processed_signal.json",
+    "$id": "https://github.com/dimilafl/rtu/raw/main/schemas/processed_signal.json",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "ProcessedSignal",
     "type": "object",
@@ -82,7 +82,7 @@ PROCESSED_SIGNAL_SCHEMA: Dict[str, Any] = {
 }
 
 PROCESSED_SCAN_SCHEMA: Dict[str, Any] = {
-    "$id": "https://schemas.sqe.local/processed_scan.json",
+    "$id": "https://github.com/dimilafl/rtu/raw/main/schemas/processed_scan.json",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "ProcessedScan",
     "type": "object",
@@ -99,7 +99,7 @@ PROCESSED_SCAN_SCHEMA: Dict[str, Any] = {
 }
 
 PROCESSED_SCAN_ROW_SCHEMA: Dict[str, Any] = {
-    "$id": "https://schemas.sqe.local/processed_scan_row.json",
+    "$id": "https://github.com/dimilafl/rtu/raw/main/schemas/processed_scan_row.json",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "ProcessedScanRow",
     "type": "object",
@@ -135,7 +135,7 @@ PROCESSED_SCAN_ROW_SCHEMA: Dict[str, Any] = {
 }
 
 INCIDENT_EVENT_SCHEMA: Dict[str, Any] = {
-    "$id": "https://schemas.sqe.local/incident_event.json",
+    "$id": "https://github.com/dimilafl/rtu/raw/main/schemas/incident_event.json",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "IncidentEvent",
     "type": "object",
@@ -180,7 +180,7 @@ INCIDENT_EVENT_SCHEMA: Dict[str, Any] = {
 }
 
 GROUP_INCIDENT_EVENT_SCHEMA: Dict[str, Any] = {
-    "$id": "https://schemas.sqe.local/group_incident_event.json",
+    "$id": "https://github.com/dimilafl/rtu/raw/main/schemas/group_incident_event.json",
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "GroupIncidentEvent",
     "type": "object",
